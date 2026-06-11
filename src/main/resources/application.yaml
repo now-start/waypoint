@@ -1,6 +1,6 @@
 spring:
   application:
-    name: spring
+    name: waypoint
   config:
     import: ${SPRING_CONFIG_IMPORT:optional:configserver:https://spring.nowstart.org/config}
 
