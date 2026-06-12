@@ -1,0 +1,37 @@
+package org.nowstart.waypoint.application.port.out;
+
+import org.nowstart.waypoint.domain.type.CollectionApiType;
+import org.nowstart.waypoint.domain.type.CollectionStatus;
+
+import java.util.List;
+
+public interface SaveTransitDataPort {
+
+    Long startCollectionRun(CollectionApiType apiType, String requestKey, String requestParamsJson);
+
+    void finishCollectionRun(
+            Long runId,
+            CollectionStatus status,
+            int httpStatus,
+            String resultCode,
+            String resultMessage,
+            int rowCount,
+            String errorMessage
+    );
+
+    int saveRoutes(String cityCode, List<LoadTagoRoutePort.TagoRoute> routes);
+
+    int saveRouteStops(String cityCode, String sourceRouteId, List<LoadTagoRoutePort.TagoRouteStop> stops);
+
+    int saveLocationSnapshots(
+            String cityCode,
+            String sourceRouteId,
+            List<LoadTagoLocationPort.TagoBusLocation> locations
+    );
+
+    int saveArrivalSnapshots(
+            String cityCode,
+            String sourceNodeId,
+            List<LoadTagoArrivalPort.TagoBusArrival> arrivals
+    );
+}
