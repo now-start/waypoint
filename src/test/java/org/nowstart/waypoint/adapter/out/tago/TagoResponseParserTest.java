@@ -3,8 +3,10 @@ package org.nowstart.waypoint.adapter.out.tago;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.nowstart.waypoint.application.port.out.TagoApiException;
 
 import static org.assertj.core.api.BDDAssertions.then;
+import static org.assertj.core.api.BDDAssertions.thenThrownBy;
 
 class TagoResponseParserTest {
 
@@ -119,5 +121,72 @@ class TagoResponseParserTest {
 
         // then: 성공 응답으로 취급하지 않는다
         then(parsed.isSuccess()).isFalse();
+    }
+
+    @Test
+    @DisplayName("items.item이 비어 있으면 빈 목록으로 변환한다")
+    void parseEmptyItems() {
+        // given: 성공했지만 항목이 없는 TAGO 응답
+        String response = """
+                {
+                  "response": {
+                    "header": {"resultCode": "00"},
+                    "body": {
+                      "totalCount": 0,
+                      "items": {
+                        "item": []
+                      }
+                    }
+                  }
+                }
+                """;
+
+        // when: 응답을 파싱한다
+        TagoResponseParser.ParsedTagoResponse parsed = parser.parse(response);
+
+        // then: 빈 응답을 실패나 단건 데이터로 오해하지 않는다
+        then(parsed.isSuccess()).isTrue();
+        then(parsed.totalCount()).isZero();
+        then(parsed.items()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("음수 도착 시간은 남은 시간과 예상 시각으로 변환하지 않는다")
+    void parseNegativeArrivalTimeAsMissing() {
+        // given: 음수 도착 시간이 내려온 응답
+        String response = """
+                {
+                  "response": {
+                    "header": {"resultCode": "00"},
+                    "body": {
+                      "items": {
+                        "item": {"arrtime": "-1"}
+                      }
+                    }
+                  }
+                }
+                """;
+
+        // when: 응답을 파싱한다
+        TagoResponseParser.ParsedTagoResponse parsed = parser.parse(response);
+
+        // then: 비정상 도착 시간을 계산값으로 사용하지 않는다
+        then(TagoResponseParser.arrivalRemainingMinutes(parsed.items().getFirst())).isNull();
+        then(TagoResponseParser.arrivalExpectedAt(parsed.items().getFirst(), java.time.Instant.EPOCH)).isNull();
+    }
+
+    @Test
+    @DisplayName("깨진 JSON 응답은 TAGO 파싱 예외로 변환한다")
+    void parseInvalidJsonAsTagoApiException() {
+        // given: JSON 형식이 아닌 응답 본문
+        String response = "{";
+
+        // when & then: 호출자가 수집 실패로 기록할 수 있는 예외로 변환한다
+        thenThrownBy(() -> parser.parse(response))
+                .isInstanceOfSatisfying(TagoApiException.class, exception -> {
+                    then(exception).hasMessage("TAGO 응답 파싱에 실패했습니다.");
+                    then(exception.getHttpStatus()).isEqualTo(200);
+                    then(exception.getResultCode()).isEqualTo("PARSE_ERROR");
+                });
     }
 }
