@@ -1,0 +1,74 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:localdb;MODE=MariaDB;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+  h2:
+    console:
+      enabled: true
+      settings:
+        web-allow-others: true
+  cloud:
+    config:
+      enabled: false
+    discovery:
+      enabled: false
+    bus:
+      enabled: false
+  cache:
+    type: none
+  data:
+    redis:
+      repositories:
+        enabled: false
+  rabbitmq:
+    dynamic: false
+    listener:
+      simple:
+        auto-startup: false
+      direct:
+        auto-startup: false
+
+eureka:
+  client:
+    enabled: false
+
+management:
+  health:
+    redis:
+      enabled: false
+    rabbit:
+      enabled: false
+
+otel:
+  sdk:
+    disabled: true
+  exporter:
+    otlp:
+      endpoint: http://otel-lgtm:4318
+
+waypoint:
+  tago:
+    base-url: http://apis.data.go.kr/1613000
+    service-key: ${TAGO_SERVICE_KEY:}
+    city-name: ${TAGO_CITY_NAME:창원시}
+    city-code: ${TAGO_CITY_CODE:}
+    num-of-rows: 1000
+    max-pages: 100
+    connect-timeout: 5s
+    read-timeout: 20s
+  collection:
+    reference-data-on-startup: false
+    location-scheduler-enabled: false
+    location-fixed-delay: 60s
+    arrival-observation-source-node-ids: ${WAYPOINT_ARRIVAL_OBSERVATION_SOURCE_NODE_IDS:}
+  ollama:
+    base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+    model: ${OLLAMA_MODEL:llama3.1}
+  anomaly:
+    headway-wide: 30m
+    headway-narrow: 3m
+    location-stale: 5m

@@ -1,6 +1,8 @@
 services:
   otel-lgtm:
     image: grafana/otel-lgtm:latest
+    profiles:
+      - observability
     restart: unless-stopped
     ports:
       - "3000:3000"   # Grafana
@@ -14,10 +16,10 @@ services:
     ports:
       - "8080:8080"
     environment:
-      OTEL_JAVAAGENT_ENABLED: true
+      SPRING_PROFILES_ACTIVE: local
+      OTEL_JAVAAGENT_ENABLED: false
+      OTEL_SDK_DISABLED: true
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-lgtm:4318
       OTEL_TRACES_EXPORTER: otlp
       OTEL_METRICS_EXPORTER: otlp
       OTEL_LOGS_EXPORTER: otlp
-    depends_on:
-      - otel-lgtm
