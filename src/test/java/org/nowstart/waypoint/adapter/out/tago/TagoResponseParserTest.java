@@ -13,7 +13,7 @@ class TagoResponseParserTest {
     @Test
     @DisplayName("items.item 배열 응답을 목록으로 변환한다")
     void parseArrayItems() {
-        // given
+        // given: items.item이 배열인 TAGO 응답
         String response = """
                 {
                   "response": {
@@ -34,10 +34,10 @@ class TagoResponseParserTest {
                 }
                 """;
 
-        // when
+        // when: 응답을 파싱한다
         TagoResponseParser.ParsedTagoResponse parsed = parser.parse(response);
 
-        // then
+        // then: 배열 항목을 그대로 목록으로 변환한다
         then(parsed.isSuccess()).isTrue();
         then(parsed.totalCount()).isEqualTo(2);
         then(parsed.items()).hasSize(2);
@@ -47,7 +47,7 @@ class TagoResponseParserTest {
     @Test
     @DisplayName("items.item 단건 응답을 목록으로 변환한다")
     void parseSingleItem() {
-        // given
+        // given: items.item이 단건 객체인 TAGO 응답
         String response = """
                 {
                   "response": {
@@ -65,10 +65,10 @@ class TagoResponseParserTest {
                 }
                 """;
 
-        // when
+        // when: 응답을 파싱한다
         TagoResponseParser.ParsedTagoResponse parsed = parser.parse(response);
 
-        // then
+        // then: 단건 항목도 목록으로 감싸서 변환한다
         then(parsed.items()).hasSize(1);
         then(TagoResponseParser.text(parsed.items().getFirst(), "cityCode")).isEqualTo("38010");
         then(TagoResponseParser.text(parsed.items().getFirst(), "cityName")).isEqualTo("창원시");
@@ -77,7 +77,7 @@ class TagoResponseParserTest {
     @Test
     @DisplayName("도착 남은 초를 분과 예상 시각으로 변환한다")
     void parseArrivalTime() {
-        // given
+        // given: 도착 남은 시간이 초 단위로 내려오는 응답
         String response = """
                 {
                   "response": {
@@ -91,17 +91,17 @@ class TagoResponseParserTest {
                 }
                 """;
 
-        // when
+        // when: 응답을 파싱한다
         TagoResponseParser.ParsedTagoResponse parsed = parser.parse(response);
 
-        // then
+        // then: 남은 초를 올림 분 단위로 변환한다
         then(TagoResponseParser.arrivalRemainingMinutes(parsed.items().getFirst())).isEqualTo(3);
     }
 
     @Test
     @DisplayName("결과코드가 없는 응답은 성공으로 처리하지 않는다")
     void parseMissingResultCodeAsFailure() {
-        // given
+        // given: resultCode가 없는 비정상 TAGO 응답
         String response = """
                 {
                   "response": {
@@ -114,10 +114,10 @@ class TagoResponseParserTest {
                 }
                 """;
 
-        // when
+        // when: 응답을 파싱한다
         TagoResponseParser.ParsedTagoResponse parsed = parser.parse(response);
 
-        // then
+        // then: 성공 응답으로 취급하지 않는다
         then(parsed.isSuccess()).isFalse();
     }
 }

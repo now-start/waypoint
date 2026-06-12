@@ -22,7 +22,7 @@ class TagoAdapterMappingTest {
     @Test
     @DisplayName("노선 기본정보 응답 필드를 노선 데이터로 변환한다")
     void mapRouteInfo() throws Exception {
-        // given
+        // given: 노선 기본정보 공식 응답 필드
         TagoClient client = mock(TagoClient.class);
         JsonNode item = objectMapper.readTree("""
                 {
@@ -44,10 +44,10 @@ class TagoAdapterMappingTest {
         ))).willReturn(List.of(item));
         TagoRouteAdapter adapter = new TagoRouteAdapter(client);
 
-        // when
+        // when: 노선 상세 응답을 포트 모델로 변환한다
         LoadTagoRoutePort.TagoRoute route = adapter.loadRouteInfo("38010", "CWB123").orElseThrow();
 
-        // then
+        // then: 배차간격과 운행 시간 필드를 보존한다
         then(route.sourceRouteId()).isEqualTo("CWB123");
         then(route.routeNo()).isEqualTo("101");
         then(route.routeType()).isEqualTo("간선버스");
@@ -61,7 +61,7 @@ class TagoAdapterMappingTest {
     @Test
     @DisplayName("노선별 위치정보 응답 필드를 위치 스냅샷 데이터로 변환한다")
     void mapLocation() throws Exception {
-        // given
+        // given: 노선별 위치정보 공식 응답 필드
         TagoClient client = mock(TagoClient.class);
         JsonNode item = objectMapper.readTree("""
                 {
@@ -79,10 +79,10 @@ class TagoAdapterMappingTest {
         ))).willReturn(List.of(item));
         TagoLocationAdapter adapter = new TagoLocationAdapter(client);
 
-        // when
+        // when: 위치 응답을 스냅샷 포트 모델로 변환한다
         LoadTagoLocationPort.TagoBusLocation location = adapter.loadBusLocations("38010", "CWB123").getFirst();
 
-        // then
+        // then: 차량번호, 정류소 순번, 좌표를 보존한다
         then(location.sourceRouteId()).isEqualTo("CWB123");
         then(location.routeNo()).isEqualTo("101");
         then(location.vehicleNo()).isEqualTo("경남71자1234");
@@ -96,7 +96,7 @@ class TagoAdapterMappingTest {
     @Test
     @DisplayName("정류소별 도착정보 응답 필드를 도착 스냅샷 데이터로 변환한다")
     void mapArrival() throws Exception {
-        // given
+        // given: 정류소별 도착정보 공식 응답 필드
         TagoClient client = mock(TagoClient.class);
         JsonNode item = objectMapper.readTree("""
                 {
@@ -116,10 +116,10 @@ class TagoAdapterMappingTest {
         ))).willReturn(List.of(item));
         TagoArrivalAdapter adapter = new TagoArrivalAdapter(client);
 
-        // when
+        // when: 도착 응답을 스냅샷 포트 모델로 변환한다
         LoadTagoArrivalPort.TagoBusArrival arrival = adapter.loadArrivals("38010", "CWS001").getFirst();
 
-        // then
+        // then: 남은 정류장 수와 남은 시간을 보존한다
         then(arrival.sourceNodeId()).isEqualTo("CWS001");
         then(arrival.nodeName()).isEqualTo("창원시청");
         then(arrival.sourceRouteId()).isEqualTo("CWB123");
