@@ -1,6 +1,9 @@
-const statusEndpoint = "/api/collections/status";
-const runsEndpoint = "/api/collections/runs?limit=20";
-const anomaliesEndpoint = "/api/anomalies";
+const baseUrl = normalizeBaseUrl(window.baseUrl || "/");
+window.baseUrl = baseUrl;
+
+const statusEndpoint = "api/collections/status";
+const runsEndpoint = "api/collections/runs?limit=20";
+const anomaliesEndpoint = "api/anomalies";
 const refreshIntervalSeconds = 30;
 
 const elements = {
@@ -33,6 +36,24 @@ let cachedRuns = [];
 let cachedAnomalies = [];
 let refreshTimerId;
 let secondsUntilRefresh = refreshIntervalSeconds;
+
+function normalizeBaseUrl(value) {
+    if (!value) {
+        return "/";
+    }
+
+    const prefixed = value.startsWith("/") ? value : `/${value}`;
+    return prefixed.endsWith("/") ? prefixed : `${prefixed}/`;
+}
+
+function buildUrl(path) {
+    if (/^https?:\/\//i.test(path)) {
+        return path;
+    }
+
+    const normalizedPath = path.startsWith("/") ? path.slice(1) : path;
+    return `${baseUrl}${normalizedPath}`;
+}
 
 function formatNumber(value) {
     return Number(value ?? 0).toLocaleString("ko-KR");
@@ -94,7 +115,7 @@ function hideModal() {
 
 
 async function fetchJson(url, options = {}) {
-    const response = await fetch(url, options);
+    const response = await fetch(buildUrl(url), options);
     if (!response.ok) {
         throw new Error(`${response.status} ${response.statusText}`);
     }
@@ -257,7 +278,7 @@ async function renderBriefing() {
     elements.briefingText.textContent = "AI 브리핑을 생성하고 있습니다.";
 
     try {
-        const response = await fetchJson("/api/briefings/operations", {
+        const response = await fetchJson("api/briefings/operations", {
             method: "POST",
             headers: {"Content-Type": "application/json"},
             body: JSON.stringify({anomalies: cachedAnomalies.map(toBriefingAnomaly)})
@@ -351,7 +372,7 @@ async function openDetail(button) {
     showModal();
 
     try {
-        const payload = await fetchJson(`/api/details/${button.dataset.detailType}?limit=50`);
+        const payload = await fetchJson(`api/details/${button.dataset.detailType}?limit=50`);
         elements.detailModalSummary.textContent = `${payload.rows.length}건 표시`;
         renderDetailTable(payload);
     } catch (error) {
