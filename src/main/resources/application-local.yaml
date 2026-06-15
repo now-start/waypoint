@@ -2,6 +2,13 @@ server:
   port: 18080
 
 spring:
+  ai:
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+      chat:
+        options:
+          model: ${OLLAMA_MODEL:gemma4:e4b}
+          temperature: 0.2
   datasource:
     url: jdbc:h2:mem:localdb;MODE=MariaDB;DB_CLOSE_DELAY=-1
     username: sa
