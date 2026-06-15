@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -25,7 +26,9 @@ public class TransitDetailController {
     @GetMapping("/{type}")
     public DetailRows getDetails(
             @PathVariable String type,
-            @RequestParam(defaultValue = "50") int limit
+            @RequestParam(defaultValue = "50") int limit,
+            @RequestParam(defaultValue = "0") int offset,
+            @RequestParam(required = false) Instant asOf
     ) {
         DetailQuery detailQuery = switch (type) {
             case "routes" -> new DetailQuery(
@@ -35,8 +38,9 @@ public class TransitDetailController {
                                    weekday_interval_minutes, first_vehicle_time, last_vehicle_time, updated_at
                             from bus_routes
                             where city_code = :cityCode
-                            order by route_no
-                            """
+                            order by route_no, source_route_id
+                            """,
+                    false
             );
             case "stops" -> new DetailQuery(
                     List.of("정류소번호", "정류소명", "위도", "경도", "최근도착수집", "갱신시각"),
@@ -45,8 +49,9 @@ public class TransitDetailController {
                                    last_arrival_collected_at, updated_at
                             from bus_stops
                             where city_code = :cityCode
-                            order by node_name
-                            """
+                            order by node_name, source_node_id
+                            """,
+                    false
             );
             case "route-stops" -> new DetailQuery(
                     List.of("노선번호", "순번", "정류소번호", "정류소명", "기점", "종점"),
@@ -61,8 +66,9 @@ public class TransitDetailController {
                               on s.city_code = rs.city_code
                              and s.source_node_id = rs.source_node_id
                             where rs.city_code = :cityCode
-                            order by r.route_no, rs.node_order
-                            """
+                            order by r.route_no, rs.source_route_id, rs.node_order, rs.source_node_id
+                            """,
+                    false
             );
             case "locations" -> new DetailQuery(
                     List.of("수집시각", "노선번호", "차량번호", "정류소ID", "순번", "위도", "경도"),
@@ -71,8 +77,10 @@ public class TransitDetailController {
                                    node_order, gps_latitude, gps_longitude
                             from bus_location_snapshots
                             where city_code = :cityCode
-                            order by collected_at desc
-                            """
+                              and collected_at <= :asOf
+                            order by collected_at desc, id desc
+                            """,
+                    true
             );
             case "arrivals" -> new DetailQuery(
                     List.of("수집시각", "노선번호", "정류소명", "남은정류소", "남은분", "예상도착", "차량유형"),
@@ -82,22 +90,33 @@ public class TransitDetailController {
                                    arrival_expected_at, vehicle_type
                             from bus_arrival_snapshots
                             where city_code = :cityCode
-                            order by collected_at desc
-                            """
+                              and collected_at <= :asOf
+                            order by collected_at desc, id desc
+                            """,
+                    true
             );
             default -> throw new IllegalArgumentException("Unsupported detail type: " + type);
         };
 
+        int safeLimit = Math.max(1, Math.min(limit, 200));
+        int safeOffset = Math.max(0, offset);
+        Instant safeAsOf = asOf == null ? Instant.now() : asOf;
         Query query = entityManager.createNativeQuery(detailQuery.sql());
         query.setParameter("cityCode", tagoProperties.cityCode());
-        query.setMaxResults(Math.max(1, Math.min(limit, 200)));
+        if (detailQuery.asOfBounded()) {
+            query.setParameter("asOf", safeAsOf);
+        }
+        query.setFirstResult(safeOffset);
+        query.setMaxResults(safeLimit + 1);
 
         List<?> rawRows = query.getResultList();
+        boolean hasMore = rawRows.size() > safeLimit;
         List<Map<String, Object>> rows = rawRows.stream()
+                .limit(safeLimit)
                 .map(row -> toMap(detailQuery.columns(), row))
                 .toList();
 
-        return new DetailRows(detailQuery.columns(), rows);
+        return new DetailRows(detailQuery.columns(), rows, safeOffset, safeLimit, hasMore, safeAsOf);
     }
 
     private static Map<String, Object> toMap(List<String> columns, Object row) {
@@ -109,9 +128,16 @@ public class TransitDetailController {
         return result;
     }
 
-    private record DetailQuery(List<String> columns, String sql) {
+    private record DetailQuery(List<String> columns, String sql, boolean asOfBounded) {
     }
 
-    public record DetailRows(List<String> columns, List<Map<String, Object>> rows) {
+    public record DetailRows(
+            List<String> columns,
+            List<Map<String, Object>> rows,
+            int offset,
+            int limit,
+            boolean hasMore,
+            Instant asOf
+    ) {
     }
 }

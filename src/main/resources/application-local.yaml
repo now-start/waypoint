@@ -61,9 +61,12 @@ waypoint:
       reference-data-initial-delay: 24h
       location-fixed-delay: 1m
       location-initial-delay: 0s
+      arrival-fixed-delay: 10m
+      arrival-initial-delay: 2m
       reference-data-concurrency: 8
       location-concurrency: 8
       arrival-concurrency: 8
+      arrival-max-stops-per-run: 30
       rate-limit: 15
   anomaly:
     headway-wide: 30m

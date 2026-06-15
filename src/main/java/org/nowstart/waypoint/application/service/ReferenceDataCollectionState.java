@@ -14,6 +14,10 @@ public class ReferenceDataCollectionState {
         return startupRunning.get() && !routesReady.get();
     }
 
+    public boolean shouldDeferArrivalCollection() {
+        return startupRunning.get();
+    }
+
     public void markStartupStarted() {
         startupRunning.set(true);
         routesReady.set(false);

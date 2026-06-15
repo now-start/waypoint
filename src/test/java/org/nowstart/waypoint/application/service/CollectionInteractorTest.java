@@ -17,12 +17,14 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.BDDAssertions.then;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.times;
@@ -85,8 +87,8 @@ class CollectionInteractorTest {
     }
 
     @Test
-    @DisplayName("도착정보 수집은 전체 정류장을 순회하고 일부 정류장 실패 시 부분 성공을 반환한다")
-    void collectArrivalsForAllStopsWhenOneStopFails() {
+    @DisplayName("도착정보 수집은 선택된 정류장을 순회하고 일부 정류장 실패 시 부분 성공을 반환한다")
+    void collectArrivalsForSelectedStopsWhenOneStopFails() {
         // given: 두 정류장 중 한 정류장의 TAGO 도착 수집이 실패하는 도착 수집기
         LoadTransitDataPort.StopReference successStop = stop("CWS001", "창원역");
         LoadTransitDataPort.StopReference failedStop = stop("CWS002", "시청");
@@ -95,7 +97,7 @@ class CollectionInteractorTest {
         given(cityCodeResolver.resolve()).willReturn("38010");
         given(loadTransitDataPort.loadStops("38010")).willReturn(List.of(successStop, failedStop));
         given(arrivalPort.loadArrivals("38010", "CWS001")).willReturn(arrivals);
-        given(saveTransitDataPort.saveArrivalSnapshots("38010", arrivals)).willReturn(1);
+        given(saveTransitDataPort.saveArrivalSnapshots(eq("38010"), eq(arrivals), any())).willReturn(1);
         given(arrivalPort.loadArrivals("38010", "CWS002"))
                 .willThrow(new IllegalStateException("TAGO 도착 수집 실패"));
 
@@ -120,10 +122,139 @@ class CollectionInteractorTest {
                 CollectionStatus.PARTIAL,
                 200,
                 "OK",
-                "arrivals=1, stopFailures=1, failedStopIds=[CWS002]",
+                "arrivals=1, stopFailures=1, selectedStops=2, totalStops=2, failedStopIds=[CWS002]",
                 1,
                 null
         );
+    }
+
+    @Test
+    @DisplayName("도착정보 수집은 오래된 정류소부터 최대 수집 개수만 선택한다")
+    void collectArrivalsSelectsOldestStopsWithinRunLimit() {
+        // given: 세 정류장 중 수집 시각이 오래된 두 개만 이번 실행 대상인 도착 수집기
+        LoadTransitDataPort.StopReference newestStop = stop(
+                "CWS003",
+                "최신정류소",
+                Instant.parse("2026-06-15T00:30:00Z")
+        );
+        LoadTransitDataPort.StopReference neverCollectedStop = stop("CWS001", "미수집정류소", null);
+        LoadTransitDataPort.StopReference oldestStop = stop(
+                "CWS002",
+                "오래된정류소",
+                Instant.parse("2026-06-15T00:00:00Z")
+        );
+        List<LoadTagoArrivalPort.TagoBusArrival> arrivals = List.of(arrival("CWS001", "CWB101"));
+
+        given(cityCodeResolver.resolve()).willReturn("38010");
+        given(loadTransitDataPort.loadStops("38010")).willReturn(List.of(newestStop, neverCollectedStop, oldestStop));
+        given(arrivalPort.loadArrivals("38010", "CWS001")).willReturn(arrivals);
+        given(arrivalPort.loadArrivals("38010", "CWS002")).willReturn(List.of());
+        given(saveTransitDataPort.saveArrivalSnapshots(eq("38010"), eq(arrivals), any())).willReturn(1);
+
+        BusArrivalCollectionInteractor interactor = new BusArrivalCollectionInteractor(
+                cityCodeResolver,
+                loadTransitDataPort,
+                arrivalPort,
+                saveTransitDataPort,
+                runSupport(saveTransitDataPort, 8L),
+                collectionProperties(1, 2)
+        );
+
+        // when: 도착정보 수집을 실행한다
+        CollectionResult result = interactor.collectAllStops();
+
+        // then: 미수집 정류소와 가장 오래된 정류소만 수집한다
+        then(result.status()).isEqualTo(CollectionStatus.SUCCESS);
+        then(result.rowCount()).isEqualTo(1);
+        org.mockito.BDDMockito.then(arrivalPort).should().loadArrivals("38010", "CWS001");
+        org.mockito.BDDMockito.then(arrivalPort).should().loadArrivals("38010", "CWS002");
+        org.mockito.BDDMockito.then(arrivalPort).shouldHaveNoMoreInteractions();
+        org.mockito.BDDMockito.then(saveTransitDataPort).should().finishCollectionRun(
+                8L,
+                CollectionStatus.SUCCESS,
+                200,
+                "OK",
+                "arrivals=1, stopFailures=0, selectedStops=2, totalStops=3",
+                1,
+                null
+        );
+    }
+
+    @Test
+    @DisplayName("도착정보 수집은 0건 성공 정류소도 수집 시각 갱신 대상에 포함한다")
+    void collectArrivalsMarksEmptySuccessfulStopsAsCollected() {
+        // given: 성공 응답이지만 도착 행이 없는 정류소와 실패 정류소가 섞인 도착 수집기
+        LoadTransitDataPort.StopReference rowStop = stop("CWS001", "도착행정류소");
+        LoadTransitDataPort.StopReference emptyStop = stop("CWS002", "빈응답정류소");
+        LoadTransitDataPort.StopReference failedStop = stop("CWS003", "실패정류소");
+        Instant collectedAt = Instant.parse("2026-06-15T00:00:00Z");
+        List<LoadTagoArrivalPort.TagoBusArrival> arrivals = List.of(arrival("CWS001", "CWB101", collectedAt));
+
+        given(cityCodeResolver.resolve()).willReturn("38010");
+        given(loadTransitDataPort.loadStops("38010")).willReturn(List.of(rowStop, emptyStop, failedStop));
+        given(arrivalPort.loadArrivals("38010", "CWS001")).willReturn(arrivals);
+        given(arrivalPort.loadArrivals("38010", "CWS002")).willReturn(List.of());
+        given(arrivalPort.loadArrivals("38010", "CWS003"))
+                .willThrow(new IllegalStateException("TAGO 도착 수집 실패"));
+        given(saveTransitDataPort.saveArrivalSnapshots(
+                eq("38010"),
+                eq(arrivals),
+                argThat((Map<String, Instant> collectedAtByStop) ->
+                        collectedAtByStop.size() == 2
+                                && collectedAt.equals(collectedAtByStop.get("CWS001"))
+                                && collectedAtByStop.get("CWS002") != null
+                                && !collectedAtByStop.containsKey("CWS003"))
+        )).willReturn(1);
+
+        BusArrivalCollectionInteractor interactor = new BusArrivalCollectionInteractor(
+                cityCodeResolver,
+                loadTransitDataPort,
+                arrivalPort,
+                saveTransitDataPort,
+                runSupport(saveTransitDataPort, 10L),
+                collectionProperties(1, 3)
+        );
+
+        // when: 도착정보 수집을 실행한다
+        CollectionResult result = interactor.collectAllStops();
+
+        // then: 실패 정류소는 제외하고, 0건 성공 정류소는 수집 시각 갱신 대상에 포함한다
+        then(result.status()).isEqualTo(CollectionStatus.PARTIAL);
+        then(result.rowCount()).isEqualTo(1);
+        then(result.failureCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("도착정보 수집은 수동과 스케줄 진입점이 겹쳐도 중복 실행하지 않는다")
+    void collectArrivalsSkipsOverlappingRuns() {
+        // given: 도착정보 수집 중 다시 도착정보 수집이 호출된다
+        CollectionResult[] nestedResult = new CollectionResult[1];
+        BusArrivalCollectionInteractor[] interactorRef = new BusArrivalCollectionInteractor[1];
+        BusArrivalCollectionInteractor interactor = new BusArrivalCollectionInteractor(
+                cityCodeResolver,
+                loadTransitDataPort,
+                arrivalPort,
+                saveTransitDataPort,
+                runSupport(saveTransitDataPort, 9L),
+                collectionProperties(1)
+        );
+        interactorRef[0] = interactor;
+        given(cityCodeResolver.resolve()).willReturn("38010");
+        given(loadTransitDataPort.loadStops("38010")).willAnswer(invocation -> {
+            nestedResult[0] = interactorRef[0].collectAllStops();
+            return List.of(stop("CWS001", "창원역"));
+        });
+        given(arrivalPort.loadArrivals("38010", "CWS001")).willReturn(List.of());
+        given(saveTransitDataPort.saveArrivalSnapshots(eq("38010"), eq(List.of()), any())).willReturn(0);
+
+        // when: 도착정보 수집을 실행한다
+        CollectionResult result = interactor.collectAllStops();
+
+        // then: 중첩 호출은 실제 TAGO 도착정보 수집을 다시 시작하지 않는다
+        then(result.status()).isEqualTo(CollectionStatus.EMPTY);
+        then(nestedResult[0].status()).isEqualTo(CollectionStatus.EMPTY);
+        then(nestedResult[0].message()).isEqualTo("이미 TAGO 버스 도착정보 수집이 진행 중입니다.");
+        org.mockito.BDDMockito.then(loadTransitDataPort).should(times(1)).loadStops("38010");
     }
 
     @Test
@@ -320,7 +451,15 @@ class CollectionInteractorTest {
     }
 
     private static LoadTransitDataPort.StopReference stop(String sourceNodeId, String nodeName) {
-        return new LoadTransitDataPort.StopReference("38010", sourceNodeId, nodeName, null);
+        return stop(sourceNodeId, nodeName, null);
+    }
+
+    private static LoadTransitDataPort.StopReference stop(
+            String sourceNodeId,
+            String nodeName,
+            Instant lastArrivalCollectedAt
+    ) {
+        return new LoadTransitDataPort.StopReference("38010", sourceNodeId, nodeName, lastArrivalCollectedAt);
     }
 
     private static LoadTagoRoutePort.TagoRoute tagoRoute(String sourceRouteId, String routeNo) {
@@ -339,11 +478,16 @@ class CollectionInteractorTest {
     }
 
     private static TagoCollectionProperties collectionProperties(int referenceDataConcurrency) {
+        return collectionProperties(referenceDataConcurrency, 100);
+    }
+
+    private static TagoCollectionProperties collectionProperties(int referenceDataConcurrency, int arrivalMaxStopsPerRun) {
         return new TagoCollectionProperties(
                 referenceDataConcurrency,
                 referenceDataConcurrency,
                 referenceDataConcurrency,
-                25
+                25,
+                arrivalMaxStopsPerRun
         );
     }
 
@@ -361,6 +505,14 @@ class CollectionInteractorTest {
     }
 
     private static LoadTagoArrivalPort.TagoBusArrival arrival(String sourceNodeId, String sourceRouteId) {
+        return arrival(sourceNodeId, sourceRouteId, Instant.parse("2026-06-13T00:00:00Z"));
+    }
+
+    private static LoadTagoArrivalPort.TagoBusArrival arrival(
+            String sourceNodeId,
+            String sourceRouteId,
+            Instant collectedAt
+    ) {
         return new LoadTagoArrivalPort.TagoBusArrival(
                 sourceNodeId,
                 "창원역",
@@ -369,9 +521,9 @@ class CollectionInteractorTest {
                 "간선",
                 3,
                 5,
-                Instant.parse("2026-06-13T00:05:00Z"),
+                collectedAt.plusSeconds(300),
                 "일반",
-                Instant.parse("2026-06-13T00:00:00Z")
+                collectedAt
         );
     }
 }

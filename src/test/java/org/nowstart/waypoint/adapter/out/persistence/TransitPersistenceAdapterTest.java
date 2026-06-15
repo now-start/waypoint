@@ -21,6 +21,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -203,13 +204,44 @@ class TransitPersistenceAdapterTest {
         Instant collectedAt = Instant.parse("2026-06-13T00:00:00Z");
 
         // when: 도착 스냅샷을 저장한다
-        int savedCount = adapter.saveArrivalSnapshots("38010", List.of(arrival("CWS001", collectedAt)));
+        int savedCount = adapter.saveArrivalSnapshots(
+                "38010",
+                List.of(arrival("CWS001", collectedAt)),
+                Map.of("CWS001", collectedAt)
+        );
 
         // then: 스냅샷은 일괄 저장하고, 정류장은 단건 조회 없이 배치 조회로 갱신한다
         assertThat(savedCount).isEqualTo(1);
         then(arrivalSnapshotRepository).should().saveAll(any());
         then(busStopRepository).should().findAllByCityCodeAndSourceNodeIdIn(eq("38010"), anySourceNodeIds());
         verify(stop).markArrivalCollected(collectedAt);
+    }
+
+    @Test
+    @DisplayName("도착 스냅샷 저장은 저장 행이 없어도 성공 조회 정류소의 수집 시각을 갱신한다")
+    void saveArrivalSnapshotsMarksAttemptedStopWhenRowsEmpty() {
+        // given: TAGO 응답은 성공했지만 도착 행이 없는 정류장이 있다
+        BusStopEntity stop = busStop("CWS001");
+        given(busStopRepository.findAllByCityCodeAndSourceNodeIdIn(eq("38010"), anySourceNodeIds()))
+                .willReturn(List.of(stop));
+        TransitPersistenceAdapter adapter = new TransitPersistenceAdapter(
+                busRouteRepository,
+                busStopRepository,
+                routeStopRepository,
+                locationSnapshotRepository,
+                arrivalSnapshotRepository,
+                collectionRunRepository
+        );
+        Instant attemptedAt = Instant.parse("2026-06-13T00:00:00Z");
+
+        // when: 스냅샷 행 없이 성공 조회 시각만 저장한다
+        int savedCount = adapter.saveArrivalSnapshots("38010", List.of(), Map.of("CWS001", attemptedAt));
+
+        // then: 스냅샷 저장 건수는 0이지만 정류소 수집 시각은 뒤로 밀린다
+        assertThat(savedCount).isZero();
+        then(arrivalSnapshotRepository).should().saveAll(any());
+        then(busStopRepository).should().findAllByCityCodeAndSourceNodeIdIn(eq("38010"), anySourceNodeIds());
+        verify(stop).markArrivalCollected(attemptedAt);
     }
 
     private static Collection<String> anySourceNodeIds() {

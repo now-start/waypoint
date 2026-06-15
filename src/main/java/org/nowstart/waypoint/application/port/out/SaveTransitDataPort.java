@@ -3,7 +3,9 @@ package org.nowstart.waypoint.application.port.out;
 import org.nowstart.waypoint.domain.type.CollectionApiType;
 import org.nowstart.waypoint.domain.type.CollectionStatus;
 
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 public interface SaveTransitDataPort {
 
@@ -25,5 +27,9 @@ public interface SaveTransitDataPort {
 
     int saveLocationSnapshots(String cityCode, List<LoadTagoLocationPort.TagoBusLocation> locations);
 
-    int saveArrivalSnapshots(String cityCode, List<LoadTagoArrivalPort.TagoBusArrival> arrivals);
+    int saveArrivalSnapshots(
+            String cityCode,
+            List<LoadTagoArrivalPort.TagoBusArrival> arrivals,
+            Map<String, Instant> collectedAtByStop
+    );
 }

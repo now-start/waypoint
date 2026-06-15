@@ -207,19 +207,24 @@ public class TransitPersistenceAdapter implements SaveTransitDataPort, LoadTrans
 
     @Override
     @Transactional
-    public int saveArrivalSnapshots(String cityCode, List<LoadTagoArrivalPort.TagoBusArrival> arrivals) {
+    public int saveArrivalSnapshots(
+            String cityCode,
+            List<LoadTagoArrivalPort.TagoBusArrival> arrivals,
+            Map<String, Instant> collectedAtByStop
+    ) {
         List<BusArrivalSnapshotEntity> entities = arrivals.stream()
                 .filter(arrival -> arrival.sourceNodeId() != null)
                 .map(arrival -> new BusArrivalSnapshotEntity(cityCode, arrival))
                 .toList();
         arrivalSnapshotRepository.saveAll(entities);
 
-        Map<String, Instant> latestCollectedAtByStop = arrivals.stream()
+        Map<String, Instant> latestCollectedAtByStop = new LinkedHashMap<>(collectedAtByStop);
+        arrivals.stream()
                 .filter(arrival -> arrival.sourceNodeId() != null)
                 .filter(arrival -> arrival.collectedAt() != null)
-                .collect(Collectors.toMap(
-                        LoadTagoArrivalPort.TagoBusArrival::sourceNodeId,
-                        LoadTagoArrivalPort.TagoBusArrival::collectedAt,
+                .forEach(arrival -> latestCollectedAtByStop.merge(
+                        arrival.sourceNodeId(),
+                        arrival.collectedAt(),
                         (left, right) -> left.isAfter(right) ? left : right
                 ));
         if (!latestCollectedAtByStop.isEmpty()) {

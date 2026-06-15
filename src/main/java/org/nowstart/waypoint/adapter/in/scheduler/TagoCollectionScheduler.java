@@ -2,6 +2,7 @@ package org.nowstart.waypoint.adapter.in.scheduler;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.nowstart.waypoint.application.port.in.CollectBusArrivalUseCase;
 import org.nowstart.waypoint.application.port.in.CollectionResult;
 import org.nowstart.waypoint.application.port.in.CollectBusLocationUseCase;
 import org.nowstart.waypoint.application.port.in.CollectReferenceDataUseCase;
@@ -18,9 +19,12 @@ public class TagoCollectionScheduler {
 
     private final CollectReferenceDataUseCase collectReferenceDataUseCase;
     private final CollectBusLocationUseCase collectBusLocationUseCase;
+    private final CollectBusArrivalUseCase collectBusArrivalUseCase;
     private final ReferenceDataCollectionState referenceDataCollectionState;
     private final AtomicBoolean startupSkipLogged = new AtomicBoolean(false);
+    private final AtomicBoolean arrivalStartupSkipLogged = new AtomicBoolean(false);
     private final AtomicBoolean referenceDataRefreshRunning = new AtomicBoolean(false);
+    private final AtomicBoolean arrivalCollectionRunning = new AtomicBoolean(false);
 
     @Scheduled(
             fixedDelayString = "${waypoint.tago.collection.reference-data-fixed-delay:PT24H}",
@@ -54,8 +58,6 @@ public class TagoCollectionScheduler {
         if (referenceDataCollectionState.shouldDeferLocationCollection()) {
             if (startupSkipLogged.compareAndSet(false, true)) {
                 log.info("Skipping scheduled TAGO bus location collection until startup route reference data is ready.");
-            } else {
-                log.info("Skipping scheduled TAGO bus location collection until startup route reference data is ready.");
             }
             return;
         }
@@ -69,5 +71,36 @@ public class TagoCollectionScheduler {
                 result.failureCount(),
                 result.message()
         );
+    }
+
+    @Scheduled(
+            fixedDelayString = "${waypoint.tago.collection.arrival-fixed-delay:PT10M}",
+            initialDelayString = "${waypoint.tago.collection.arrival-initial-delay:PT2M}"
+    )
+    public void collectArrivals() {
+        if (referenceDataCollectionState.shouldDeferArrivalCollection()) {
+            if (arrivalStartupSkipLogged.compareAndSet(false, true)) {
+                log.info("Skipping scheduled TAGO bus arrival collection until startup reference data is ready.");
+            }
+            return;
+        }
+        arrivalStartupSkipLogged.set(false);
+        if (!arrivalCollectionRunning.compareAndSet(false, true)) {
+            log.info("Skipping scheduled TAGO bus arrival collection because a previous collection is still running.");
+            return;
+        }
+        log.info("Starting scheduled TAGO bus arrival collection.");
+        try {
+            CollectionResult result = collectBusArrivalUseCase.collectAllStops();
+            log.info(
+                    "Finished scheduled TAGO bus arrival collection. status={}, rows={}, failures={}, message={}",
+                    result.status(),
+                    result.rowCount(),
+                    result.failureCount(),
+                    result.message()
+            );
+        } finally {
+            arrivalCollectionRunning.set(false);
+        }
     }
 }

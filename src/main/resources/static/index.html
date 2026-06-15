@@ -3,7 +3,14 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Waypoint</title>
+    <meta name="description" content="Waypoint Changwon transit operations dashboard for collection status, route details, and anomaly signals.">
+    <meta name="application-name" content="Waypoint">
+    <meta name="theme-color" content="#0f766e">
+    <meta name="color-scheme" content="light">
+    <meta property="og:title" content="Waypoint">
+    <meta property="og:description" content="Changwon transit operations dashboard for collection status, route details, and anomaly signals.">
+    <meta property="og:type" content="website">
+    <title>Waypoint · Transit Operations</title>
     <script>
         (function () {
             const firstPathSegment = window.location.pathname.split("/").filter(Boolean)[0];
@@ -12,6 +19,7 @@
             document.write('<base href="' + baseUrl + '">');
         })();
     </script>
+    <link rel="icon" href="favicon.svg" type="image/svg+xml">
     <link href="webjars/bootstrap/5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="styles.css" rel="stylesheet">
 </head>

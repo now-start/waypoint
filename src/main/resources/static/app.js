@@ -5,6 +5,8 @@ const statusEndpoint = "api/collections/status";
 const runsEndpoint = "api/collections/runs?limit=20";
 const anomaliesEndpoint = "api/anomalies";
 const refreshIntervalSeconds = 30;
+const detailSliceSize = 50;
+const detailScrollThresholdPx = 80;
 
 const elements = {
     updatedAt: document.querySelector("#updatedAt"),
@@ -24,6 +26,7 @@ const elements = {
     collectionIssueList: document.querySelector("#collectionIssueList"),
     briefingText: document.querySelector("#briefingText"),
     detailModal: document.querySelector("#detailModal"),
+    detailModalBody: document.querySelector("#detailModal .modal-body"),
     detailModalTitle: document.querySelector("#detailModalTitle"),
     detailModalSummary: document.querySelector("#detailModalSummary"),
     detailTableHead: document.querySelector("#detailTableHead"),
@@ -36,6 +39,7 @@ let cachedRuns = [];
 let cachedAnomalies = [];
 let refreshTimerId;
 let secondsUntilRefresh = refreshIntervalSeconds;
+let detailState = null;
 
 function normalizeBaseUrl(value) {
     if (!value) {
@@ -73,7 +77,8 @@ function formatDateTime(value) {
 }
 
 function statusClass(status) {
-    return `status-pill status-${String(status || "empty").toLowerCase()}`;
+    const statusSuffix = String(status || "empty").toLowerCase().replace(/[^a-z0-9_-]/g, "-");
+    return `status-pill status-${statusSuffix}`;
 }
 
 function severityClass(severity) {
@@ -134,6 +139,16 @@ function formatDetailValue(value) {
     return value;
 }
 
+function escapeHtml(value) {
+    return String(value ?? "").replace(/[&<>"']/g, (character) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        "\"": "&quot;",
+        "'": "&#39;"
+    })[character]);
+}
+
 function renderMetrics(status) {
     elements.routeCount.textContent = formatNumber(status.routeCount);
     elements.stopCount.textContent = formatNumber(status.stopCount);
@@ -154,10 +169,10 @@ function renderRuns(runs) {
 
     elements.runsBody.innerHTML = runs.map((run) => `
         <tr>
-            <td><span class="${statusClass(run.status)}">${run.status ?? "-"}</span></td>
-            <td class="fw-semibold">${run.apiType ?? "-"}</td>
-            <td class="text-secondary">${run.requestKey ?? "-"}</td>
-            <td class="text-end">${formatNumber(run.rowCount)}</td>
+            <td><span class="${statusClass(run.status)}">${escapeHtml(run.status ?? "-")}</span></td>
+            <td class="fw-semibold">${escapeHtml(run.apiType ?? "-")}</td>
+            <td class="text-secondary">${escapeHtml(run.requestKey ?? "-")}</td>
+            <td class="text-end">${escapeHtml(formatNumber(run.rowCount))}</td>
             <td>${formatDateTime(run.startedAt)}</td>
             <td>${formatDateTime(run.finishedAt)}</td>
         </tr>
@@ -174,18 +189,18 @@ function renderAnomalies(anomalies) {
 
     elements.anomalyBody.innerHTML = anomalies.map((anomaly) => `
         <tr>
-            <td><span class="${severityClass(anomaly.severity)}">${anomaly.severity}</span></td>
-            <td class="fw-semibold">${anomaly.routeNo}</td>
-            <td>${anomaly.type}</td>
-            <td>${anomaly.baseline}</td>
-            <td>${anomaly.observed}</td>
+            <td><span class="${severityClass(anomaly.severity)}">${escapeHtml(anomaly.severity)}</span></td>
+            <td class="fw-semibold">${escapeHtml(anomaly.routeNo)}</td>
+            <td>${escapeHtml(anomaly.type)}</td>
+            <td>${escapeHtml(anomaly.baseline)}</td>
+            <td>${escapeHtml(anomaly.observed)}</td>
             <td>
-                <div class="fw-semibold">${anomaly.metric}</div>
-                <div class="text-secondary small">${anomaly.area}</div>
+                <div class="fw-semibold">${escapeHtml(anomaly.metric)}</div>
+                <div class="text-secondary small">${escapeHtml(anomaly.area)}</div>
             </td>
             <td>${formatDateTime(anomaly.updatedAt)}</td>
             <td class="text-end">
-                <button class="btn btn-outline-secondary btn-sm" data-anomaly-id="${anomaly.id}" type="button">근거</button>
+                <button class="btn btn-outline-secondary btn-sm" data-anomaly-id="${escapeHtml(anomaly.id)}" type="button">근거</button>
             </td>
         </tr>
     `).join("");
@@ -205,9 +220,9 @@ function renderCollectionIssues(runs) {
 
     elements.collectionIssueList.innerHTML = issues.map((run) => `
         <div class="incident-item">
-            <span class="${statusClass(run.status)} mb-2">${run.status}</span>
-            <strong>${run.apiType ?? "수집 실행"}</strong>
-            <div class="text-secondary small">${run.errorMessage || run.resultMessage || "상세 메시지 없음"}</div>
+            <span class="${statusClass(run.status)} mb-2">${escapeHtml(run.status)}</span>
+            <strong>${escapeHtml(run.apiType ?? "수집 실행")}</strong>
+            <div class="text-secondary small">${escapeHtml(run.errorMessage || run.resultMessage || "상세 메시지 없음")}</div>
         </div>
     `).join("");
 }
@@ -293,13 +308,24 @@ async function renderBriefing() {
     }
 }
 
-function renderDetailTable(payload) {
+function renderDetailHeader(columns) {
     elements.detailTableHead.innerHTML = `
         <tr>
-            ${payload.columns.map((column) => `<th>${column}</th>`).join("")}
+            ${columns.map((column) => `<th>${escapeHtml(column)}</th>`).join("")}
         </tr>
     `;
+}
 
+function detailRowsHtml(columns, rows) {
+    return rows.map((row) => `
+        <tr>
+            ${columns.map((column) => `<td>${escapeHtml(formatDetailValue(row[column]))}</td>`).join("")}
+        </tr>
+    `).join("");
+}
+
+function renderDetailTable(payload) {
+    renderDetailHeader(payload.columns);
     if (payload.rows.length === 0) {
         elements.detailTableBody.innerHTML = `
             <tr><td class="empty-state" colspan="${payload.columns.length}">조회된 데이터가 없습니다.</td></tr>
@@ -307,11 +333,72 @@ function renderDetailTable(payload) {
         return;
     }
 
-    elements.detailTableBody.innerHTML = payload.rows.map((row) => `
-        <tr>
-            ${payload.columns.map((column) => `<td>${formatDetailValue(row[column])}</td>`).join("")}
-        </tr>
-    `).join("");
+    elements.detailTableBody.innerHTML = detailRowsHtml(payload.columns, payload.rows);
+}
+
+function appendDetailRows(payload, state) {
+    if (payload.rows.length === 0) {
+        return;
+    }
+
+    elements.detailTableBody.insertAdjacentHTML("beforeend", detailRowsHtml(state.columns, payload.rows));
+}
+
+function updateDetailSummary(state) {
+    if (detailState !== state) {
+        return;
+    }
+
+    elements.detailModalSummary.textContent = state.hasMore
+        ? `${state.loadedRows}건 표시 · 아래로 스크롤하면 더 조회`
+        : `${state.loadedRows}건 표시`;
+}
+
+async function loadDetailSlice(state = detailState) {
+    if (!state || state.loading) {
+        return;
+    }
+
+    state.loading = true;
+    const initialLoad = state.loadedRows === 0;
+    if (!initialLoad) {
+        elements.detailModalSummary.textContent = `${state.loadedRows}건 표시 · 추가 조회 중`;
+    }
+
+    try {
+        const asOfParam = state.asOf ? `&asOf=${encodeURIComponent(state.asOf)}` : "";
+        const payload = await fetchJson(
+            `api/details/${state.type}?limit=${state.limit}&offset=${state.offset}${asOfParam}`
+        );
+        if (detailState !== state) {
+            return;
+        }
+
+        state.asOf = payload.asOf || state.asOf;
+        if (initialLoad) {
+            state.columns = payload.columns;
+            renderDetailTable(payload);
+        } else {
+            appendDetailRows(payload, state);
+        }
+
+        state.loadedRows += payload.rows.length;
+        state.offset = payload.offset + payload.rows.length;
+        state.hasMore = payload.hasMore;
+        updateDetailSummary(state);
+    } catch (error) {
+        if (detailState !== state) {
+            return;
+        }
+        if (!initialLoad) {
+            updateDetailSummary(state);
+        }
+        throw error;
+    } finally {
+        if (detailState === state) {
+            state.loading = false;
+        }
+    }
 }
 
 function openAnomalyEvidence(anomalyId) {
@@ -321,6 +408,8 @@ function openAnomalyEvidence(anomalyId) {
         return;
     }
 
+    detailState = null;
+    elements.detailModalBody.scrollTop = 0;
     elements.detailModalTitle.textContent = `${anomaly.routeNo}번 ${anomaly.type}`;
     elements.detailModalSummary.textContent = `${anomaly.area} · ${anomaly.metric}`;
     elements.detailTableHead.innerHTML = "";
@@ -330,18 +419,18 @@ function openAnomalyEvidence(anomalyId) {
                 <div class="evidence-summary">
                     <div>
                         <span>원래 배차 간격</span>
-                        <strong>${anomaly.baseline}</strong>
+                        <strong>${escapeHtml(anomaly.baseline)}</strong>
                     </div>
                     <div>
                         <span>스냅샷 관측값</span>
-                        <strong>${anomaly.observed}</strong>
+                        <strong>${escapeHtml(anomaly.observed)}</strong>
                     </div>
                     <div>
                         <span>판정 차이</span>
-                        <strong>${anomaly.metric}</strong>
+                        <strong>${escapeHtml(anomaly.metric)}</strong>
                     </div>
                 </div>
-                <p class="evidence-reason mb-0">${anomaly.reason}</p>
+                <p class="evidence-reason mb-0">${escapeHtml(anomaly.reason)}</p>
             </td>
         </tr>
         <tr class="evidence-subhead">
@@ -354,10 +443,10 @@ function openAnomalyEvidence(anomalyId) {
         ${anomaly.snapshots.map((snapshot) => `
             <tr>
                 <td>${formatDateTime(snapshot.collectedAt)}</td>
-                <td class="fw-semibold">${snapshot.vehicleNo}</td>
-                <td>${snapshot.nodeName}</td>
-                <td>${snapshot.nodeOrder}</td>
-                <td class="text-secondary">${snapshot.gps}</td>
+                <td class="fw-semibold">${escapeHtml(snapshot.vehicleNo)}</td>
+                <td>${escapeHtml(snapshot.nodeName)}</td>
+                <td>${escapeHtml(snapshot.nodeOrder)}</td>
+                <td class="text-secondary">${escapeHtml(snapshot.gps)}</td>
             </tr>
         `).join("")}
     `;
@@ -365,20 +454,50 @@ function openAnomalyEvidence(anomalyId) {
 }
 
 async function openDetail(button) {
+    const state = {
+        type: button.dataset.detailType,
+        columns: [],
+        asOf: null,
+        offset: 0,
+        limit: detailSliceSize,
+        loadedRows: 0,
+        hasMore: true,
+        loading: false
+    };
+    detailState = state;
+    elements.detailModalBody.scrollTop = 0;
     elements.detailModalTitle.textContent = button.dataset.detailTitle;
-    elements.detailModalSummary.textContent = "최대 50건";
+    elements.detailModalSummary.textContent = "불러오는 중";
     elements.detailTableHead.innerHTML = "";
     elements.detailTableBody.innerHTML = `<tr><td class="empty-state">불러오는 중입니다.</td></tr>`;
     showModal();
 
     try {
-        const payload = await fetchJson(`api/details/${button.dataset.detailType}?limit=50`);
-        elements.detailModalSummary.textContent = `${payload.rows.length}건 표시`;
-        renderDetailTable(payload);
+        await loadDetailSlice(state);
     } catch (error) {
+        if (detailState !== state) {
+            return;
+        }
+        elements.detailModalSummary.textContent = "조회 실패";
         elements.detailTableBody.innerHTML = `<tr><td class="empty-state">상세 데이터를 불러오지 못했습니다.</td></tr>`;
         showToast(`상세 조회 실패: ${error.message}`);
     }
+}
+
+function handleDetailScroll() {
+    if (!detailState || detailState.loading || !detailState.hasMore) {
+        return;
+    }
+
+    const remainingScroll = elements.detailModalBody.scrollHeight
+        - elements.detailModalBody.scrollTop
+        - elements.detailModalBody.clientHeight;
+    if (remainingScroll > detailScrollThresholdPx) {
+        return;
+    }
+
+    const state = detailState;
+    loadDetailSlice(state).catch((error) => showToast(`추가 조회 실패: ${error.message}`));
 }
 
 async function loadDashboard() {
@@ -446,6 +565,7 @@ document.querySelectorAll("[data-detail-type]").forEach((button) => {
 });
 
 elements.detailModal.querySelector(".btn-close").addEventListener("click", hideModal);
+elements.detailModalBody.addEventListener("scroll", handleDetailScroll);
 
 startAutoRefresh();
 

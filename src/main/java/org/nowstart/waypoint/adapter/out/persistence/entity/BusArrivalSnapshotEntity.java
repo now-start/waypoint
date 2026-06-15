@@ -21,7 +21,8 @@ import java.util.UUID;
         name = "bus_arrival_snapshots",
         indexes = {
                 @Index(name = "ix_arrival_stop_collected", columnList = "city_code,source_node_id,collected_at"),
-                @Index(name = "ix_arrival_route_collected", columnList = "city_code,source_route_id,collected_at")
+                @Index(name = "ix_arrival_route_collected", columnList = "city_code,source_route_id,collected_at"),
+                @Index(name = "ix_arrival_city_collected_id", columnList = "city_code,collected_at,id")
         }
 )
 @NoArgsConstructor(access = AccessLevel.PROTECTED)

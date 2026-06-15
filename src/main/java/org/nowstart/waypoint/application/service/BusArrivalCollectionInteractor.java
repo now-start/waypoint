@@ -12,9 +12,15 @@ import org.nowstart.waypoint.domain.type.CollectionApiType;
 import org.nowstart.waypoint.domain.type.CollectionStatus;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
 @RequiredArgsConstructor
@@ -29,9 +35,31 @@ public class BusArrivalCollectionInteractor implements CollectBusArrivalUseCase 
     private final SaveTransitDataPort saveTransitDataPort;
     private final CollectionRunSupport runSupport;
     private final TagoCollectionProperties collectionProperties;
+    private final AtomicBoolean collectionRunning = new AtomicBoolean(false);
 
     @Override
     public CollectionResult collectAllStops() {
+        if (!collectionRunning.compareAndSet(false, true)) {
+            String message = "이미 TAGO 버스 도착정보 수집이 진행 중입니다.";
+            Instant now = Instant.now();
+            return new CollectionResult(
+                    CollectionApiType.BUS_ARRIVAL,
+                    CollectionStatus.EMPTY,
+                    0,
+                    0,
+                    message,
+                    now,
+                    now
+            );
+        }
+        try {
+            return collectLocked();
+        } finally {
+            collectionRunning.set(false);
+        }
+    }
+
+    private CollectionResult collectLocked() {
         CollectionRunSupport.CollectionRun run = runSupport.start(
                 CollectionApiType.BUS_ARRIVAL,
                 "changwon-all-stop-arrivals",
@@ -44,12 +72,18 @@ public class BusArrivalCollectionInteractor implements CollectBusArrivalUseCase 
                 return runSupport.finish(run, CollectionStatus.EMPTY, 0, 0,
                         "수집된 정류장 기준 데이터가 없습니다.");
             }
+            List<LoadTransitDataPort.StopReference> selectedStops = selectStops(stops, collectionProperties.arrivalMaxStopsPerRun());
+            if (selectedStops.isEmpty()) {
+                return runSupport.finish(run, CollectionStatus.EMPTY, 0, 0,
+                        "도착정보 수집 대상 정류장이 없습니다.");
+            }
 
             int concurrency = collectionProperties.arrivalConcurrency();
             log.info(
-                    "Starting TAGO bus arrival fetch. cityCode={}, stopCount={}, concurrency={}",
+                    "Starting TAGO bus arrival fetch. cityCode={}, stopCount={}, selectedStopCount={}, concurrency={}",
                     cityCode,
                     stops.size(),
+                    selectedStops.size(),
                     concurrency
             );
             long fetchStartedAt = System.nanoTime();
@@ -57,7 +91,7 @@ public class BusArrivalCollectionInteractor implements CollectBusArrivalUseCase 
                     LoadTransitDataPort.StopReference,
                     List<LoadTagoArrivalPort.TagoBusArrival>>> results = ConcurrentCollectionSupport.execute(
                     "bus-arrival",
-                    stops,
+                    selectedStops,
                     concurrency,
                     stop -> arrivalPort.loadArrivals(cityCode, stop.sourceNodeId()),
                     stop -> List.of()
@@ -81,17 +115,19 @@ public class BusArrivalCollectionInteractor implements CollectBusArrivalUseCase 
                     arrivals.addAll(result.value());
                 }
             }
+            Map<String, Instant> collectedAtByStop = collectedAtBySuccessfulStop(results);
             log.info(
-                    "Finished TAGO bus arrival fetch. cityCode={}, stopCount={}, arrivalRows={}, failures={}, durationMs={}",
+                    "Finished TAGO bus arrival fetch. cityCode={}, stopCount={}, selectedStopCount={}, arrivalRows={}, failures={}, durationMs={}",
                     cityCode,
                     stops.size(),
+                    selectedStops.size(),
                     arrivals.size(),
                     failureCount,
                     elapsedMillis(fetchStartedAt)
             );
 
             long saveStartedAt = System.nanoTime();
-            int rowCount = saveTransitDataPort.saveArrivalSnapshots(cityCode, arrivals);
+            int rowCount = saveTransitDataPort.saveArrivalSnapshots(cityCode, arrivals, collectedAtByStop);
             log.info(
                     "Saved TAGO bus arrival snapshots. cityCode={}, rows={}, durationMs={}",
                     cityCode,
@@ -101,14 +137,64 @@ public class BusArrivalCollectionInteractor implements CollectBusArrivalUseCase 
 
             CollectionStatus status = status(rowCount, failureCount);
             return runSupport.finish(run, status, rowCount, failureCount,
-                    resultMessage(rowCount, failureCount, failedStopIds));
+                    resultMessage(rowCount, failureCount, selectedStops.size(), stops.size(), failedStopIds));
         } catch (RuntimeException ex) {
             return runSupport.fail(run, ex);
         }
     }
 
-    private static String resultMessage(int rowCount, int failureCount, List<String> failedStopIds) {
-        String message = "arrivals=" + rowCount + ", stopFailures=" + failureCount;
+    private static Map<String, Instant> collectedAtBySuccessfulStop(
+            List<ConcurrentCollectionSupport.TaskResult<
+                    LoadTransitDataPort.StopReference,
+                    List<LoadTagoArrivalPort.TagoBusArrival>>> results
+    ) {
+        Instant attemptedAt = Instant.now();
+        Map<String, Instant> collectedAtByStop = new LinkedHashMap<>();
+        for (ConcurrentCollectionSupport.TaskResult<
+                LoadTransitDataPort.StopReference,
+                List<LoadTagoArrivalPort.TagoBusArrival>> result : results) {
+            if (result.failed() || result.source().sourceNodeId() == null) {
+                continue;
+            }
+            Instant collectedAt = result.value().stream()
+                    .map(LoadTagoArrivalPort.TagoBusArrival::collectedAt)
+                    .filter(Objects::nonNull)
+                    .max(Comparator.naturalOrder())
+                    .orElse(attemptedAt);
+            collectedAtByStop.put(result.source().sourceNodeId(), collectedAt);
+        }
+        return collectedAtByStop;
+    }
+
+    private static List<LoadTransitDataPort.StopReference> selectStops(
+            List<LoadTransitDataPort.StopReference> stops,
+            int maxStops
+    ) {
+        return stops.stream()
+                .sorted(Comparator
+                        .comparing(
+                                LoadTransitDataPort.StopReference::lastArrivalCollectedAt,
+                                Comparator.nullsFirst(Comparator.naturalOrder())
+                        )
+                        .thenComparing(
+                                LoadTransitDataPort.StopReference::sourceNodeId,
+                                Comparator.nullsLast(Comparator.naturalOrder())
+                        ))
+                .limit(maxStops)
+                .toList();
+    }
+
+    private static String resultMessage(
+            int rowCount,
+            int failureCount,
+            int selectedStopCount,
+            int totalStopCount,
+            List<String> failedStopIds
+    ) {
+        String message = "arrivals=" + rowCount
+                + ", stopFailures=" + failureCount
+                + ", selectedStops=" + selectedStopCount
+                + ", totalStops=" + totalStopCount;
         if (failedStopIds.isEmpty()) {
             return message;
         }
