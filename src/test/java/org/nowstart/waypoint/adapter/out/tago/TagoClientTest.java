@@ -33,7 +33,6 @@ class TagoClientTest {
         TagoProperties properties = new TagoProperties(
                 "http://localhost:1",
                 "   ",
-                "창원시",
                 "38010",
                 100,
                 Duration.ofMillis(10),
@@ -77,7 +76,6 @@ class TagoClientTest {
             TagoProperties properties = new TagoProperties(
                     "http://localhost:" + server.getAddress().getPort(),
                     "decoded-service-key",
-                    "창원시",
                     "38010",
                     2,
                     Duration.ofMillis(500),
@@ -117,7 +115,6 @@ class TagoClientTest {
             TagoProperties properties = new TagoProperties(
                     "http://localhost:" + server.getAddress().getPort(),
                     "abc+def==",
-                    "창원시",
                     "38010",
                     100,
                     Duration.ofMillis(500),
@@ -159,7 +156,6 @@ class TagoClientTest {
             TagoProperties properties = new TagoProperties(
                     "http://localhost:" + server.getAddress().getPort(),
                     "decoded-service-key",
-                    "창원시",
                     "38010",
                     1,
                     Duration.ofMillis(500),

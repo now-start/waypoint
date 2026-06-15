@@ -16,7 +16,6 @@ class TagoPropertiesTest {
         TagoProperties properties = new TagoProperties(
                 "http://apis.data.go.kr/1613000",
                 "\"decoded-key\"",
-                "창원시",
                 "38010",
                 1000,
                 Duration.ofSeconds(5),
