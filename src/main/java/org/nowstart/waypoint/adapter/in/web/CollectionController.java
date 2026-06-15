@@ -46,7 +46,7 @@ public class CollectionController {
 
     @PostMapping("/arrivals")
     public CollectionResult collectArrivals() {
-        return collectBusArrivalUseCase.collectObservationStops();
+        return collectBusArrivalUseCase.collectAllStops();
     }
 
     @GetMapping("/status")

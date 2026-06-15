@@ -148,10 +148,25 @@ MVP 저장 후보:
 - 창원시 전체 노선 목록과 노선별 경유 정류소는 앱 시작 후 수동 수집 또는 관리용 배치로 갱신한다.
 - 기준 데이터는 실시간 데이터보다 낮은 빈도로 갱신한다.
 
+### 현재 코드 호출 목록
+
+현재 Waypoint 코드가 직접 호출하는 TAGO API는 다음 6개다.
+
+| 구분 | 서비스 | Operation | 주요 파라미터 | 코드 경로 |
+| --- | --- | --- | --- | --- |
+| 도시코드 목록 | `BusRouteInfoInqireService` | `getCtyCodeList` | 공통 페이징 | `TagoRouteAdapter.loadCities()` |
+| 노선 목록 | `BusRouteInfoInqireService` | `getRouteNoList` | `cityCode` | `TagoRouteAdapter.loadRoutes()` |
+| 노선 상세 | `BusRouteInfoInqireService` | `getRouteInfoIem` | `cityCode`, `routeId` | `TagoRouteAdapter.loadRouteInfo()` |
+| 노선별 경유 정류소 | `BusRouteInfoInqireService` | `getRouteAcctoThrghSttnList` | `cityCode`, `routeId` | `TagoRouteAdapter.loadRouteStops()` |
+| 노선별 버스 위치 | `BusLcInfoInqireService` | `getRouteAcctoBusLcList` | `cityCode`, `routeId` | `TagoLocationAdapter.loadBusLocations()` |
+| 정류소별 도착정보 | `ArvlInfoInqireService` | `getSttnAcctoArvlPrearngeInfoList` | `cityCode`, `nodeId` | `TagoArrivalAdapter.loadArrivals()` |
+
+실행용 HTTP 요청은 `docs/tago-api.http`에서 관리한다.
+
 ### 실시간 데이터
 
 - 버스 위치정보는 창원시 전체 노선을 대상으로 주기 수집한다.
-- 도착정보는 전체 노선 운영현황 보조용 관찰 대상 정류소를 정해 수집한다.
+- 도착정보는 수집된 창원시 전체 정류소를 대상으로 수집한다.
 - 모든 수집 결과는 `collectedAt`을 가진다.
 
 초기 수집 주기 후보:

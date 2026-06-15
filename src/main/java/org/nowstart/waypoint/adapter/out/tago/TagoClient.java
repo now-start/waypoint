@@ -3,14 +3,20 @@ package org.nowstart.waypoint.adapter.out.tago;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.nowstart.waypoint.application.port.out.TagoApiException;
 import org.nowstart.waypoint.config.TagoProperties;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
+import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -18,6 +24,7 @@ import java.util.Map;
 @Component
 public class TagoClient {
 
+    private static final Logger log = LoggerFactory.getLogger(TagoClient.class);
     private static final String TYPE_JSON = "json";
 
     private final TagoProperties properties;
@@ -33,6 +40,7 @@ public class TagoClient {
         this.restClient = RestClient.builder()
                 .requestFactory(requestFactory)
                 .build();
+        logServiceKeyDiagnostics(properties.serviceKey());
     }
 
     public List<JsonNode> fetchItems(String serviceName, String operationName, Map<String, String> params) {
@@ -40,9 +48,8 @@ public class TagoClient {
 
         List<JsonNode> allItems = new ArrayList<>();
         int pageNo = 1;
-        Integer totalCount = null;
 
-        while (pageNo <= properties.maxPages()) {
+        while (true) {
             Map<String, String> pageParams = new LinkedHashMap<>(params);
             pageParams.put("pageNo", String.valueOf(pageNo));
             pageParams.put("numOfRows", String.valueOf(properties.numOfRows()));
@@ -60,8 +67,7 @@ public class TagoClient {
             }
 
             allItems.addAll(page.items());
-            totalCount = page.totalCount();
-            if (page.items().isEmpty() || totalCount == null || allItems.size() >= totalCount) {
+            if (isLastPage(page, allItems.size())) {
                 break;
             }
             pageNo++;
@@ -70,15 +76,34 @@ public class TagoClient {
         return allItems;
     }
 
+    private boolean isLastPage(TagoResponseParser.ParsedTagoResponse page, int accumulatedItemCount) {
+        if (page.items().isEmpty()) {
+            return true;
+        }
+        Integer totalCount = page.totalCount();
+        if (totalCount != null) {
+            return accumulatedItemCount >= totalCount;
+        }
+        if (page.items().size() < properties.numOfRows()) {
+            return true;
+        }
+        throw new TagoApiException(
+                "TAGO 응답 totalCount가 없어 전체 페이지 수를 판단할 수 없습니다.",
+                200,
+                "MISSING_TOTAL_COUNT",
+                "totalCount is required when a TAGO page is full."
+        );
+    }
+
     private TagoResponseParser.ParsedTagoResponse fetchPage(
             String serviceName,
             String operationName,
             Map<String, String> params
     ) {
-        String url = buildUrl(serviceName, operationName, params);
+        URI uri = buildUri(serviceName, operationName, params);
         try {
             String rawBody = restClient.get()
-                    .uri(url)
+                    .uri(uri)
                     .retrieve()
                     .body(String.class);
             return parser.parse(rawBody == null ? "{}" : rawBody);
@@ -93,8 +118,18 @@ public class TagoClient {
         } catch (TagoApiException ex) {
             throw ex;
         } catch (RuntimeException ex) {
-            throw new TagoApiException("TAGO API 호출에 실패했습니다.", 0, "CLIENT_ERROR", ex.getMessage(), ex);
+            throw new TagoApiException(
+                    "TAGO API 호출에 실패했습니다.",
+                    0,
+                    "CLIENT_ERROR",
+                    ex.getClass().getSimpleName(),
+                    ex
+            );
         }
+    }
+
+    URI buildUri(String serviceName, String operationName, Map<String, String> params) {
+        return URI.create(buildUrl(serviceName, operationName, params));
     }
 
     private String buildUrl(String serviceName, String operationName, Map<String, String> params) {
@@ -140,5 +175,27 @@ public class TagoClient {
 
     private static String encode(String value) {
         return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
+    }
+
+    private static void logServiceKeyDiagnostics(String serviceKey) {
+        if (serviceKey == null || serviceKey.isBlank()) {
+            log.warn("TAGO service key is not configured.");
+            return;
+        }
+        log.info(
+                "TAGO service key is configured. length={}, encoded={}, fingerprint={}",
+                serviceKey.length(),
+                serviceKey.contains("%"),
+                fingerprint(serviceKey)
+        );
+    }
+
+    private static String fingerprint(String value) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest, 0, 6);
+        } catch (NoSuchAlgorithmException ex) {
+            return "unavailable";
+        }
     }
 }

@@ -13,18 +13,16 @@ public record TagoProperties(
         String cityName,
         String cityCode,
         int numOfRows,
-        int maxPages,
         Duration connectTimeout,
         Duration readTimeout
 ) implements TagoCitySettings {
 
     public TagoProperties {
         baseUrl = hasText(baseUrl) ? trimTrailingSlash(baseUrl) : "http://apis.data.go.kr/1613000";
-        serviceKey = serviceKey == null ? "" : serviceKey.trim();
+        serviceKey = normalizeServiceKey(serviceKey);
         cityName = hasText(cityName) ? cityName.trim() : "창원시";
         cityCode = cityCode == null ? "" : cityCode.trim();
         numOfRows = numOfRows > 0 ? numOfRows : 1000;
-        maxPages = maxPages > 0 ? maxPages : 100;
         connectTimeout = connectTimeout == null ? Duration.ofSeconds(5) : connectTimeout;
         readTimeout = readTimeout == null ? Duration.ofSeconds(20) : readTimeout;
     }
@@ -55,6 +53,19 @@ public record TagoProperties(
         String result = value.trim();
         while (result.endsWith("/")) {
             result = result.substring(0, result.length() - 1);
+        }
+        return result;
+    }
+
+    private static String normalizeServiceKey(String value) {
+        if (value == null) {
+            return "";
+        }
+        String result = value.trim();
+        if (result.length() >= 2
+                && ((result.startsWith("\"") && result.endsWith("\""))
+                || (result.startsWith("'") && result.endsWith("'")))) {
+            return result.substring(1, result.length() - 1).trim();
         }
         return result;
     }

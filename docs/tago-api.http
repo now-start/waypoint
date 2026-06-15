@@ -1,0 +1,92 @@
+### TAGO API call list used by Waypoint
+#
+# This file mirrors the external TAGO calls made by:
+# - TagoRouteAdapter
+# - TagoLocationAdapter
+# - TagoArrivalAdapter
+#
+# Configure these variables before running requests.
+# Do not commit a real service key in this file.
+# serviceKey is placed directly in the query string here, so use the
+# data.go.kr Encoding key or a URL-encoded Decoding key for this .http file.
+@baseUrl = http://apis.data.go.kr/1613000
+@serviceKey = REPLACE_WITH_ENCODED_TAGO_SERVICE_KEY
+@cityCode = 38010
+@routeId = CWB379060000
+@nodeId = CWB379001076
+@pageNo = 1
+@numOfRows = 1000
+
+### 1. City code list
+# Code path: TagoRouteAdapter.loadCities()
+# Service: BusRouteInfoInqireService
+# Operation: getCtyCodeList
+GET {{baseUrl}}/BusRouteInfoInqireService/getCtyCodeList
+    ?serviceKey={{serviceKey}}
+    &_type=json
+    &pageNo={{pageNo}}
+    &numOfRows={{numOfRows}}
+
+### 2. Route list by city
+# Code path: TagoRouteAdapter.loadRoutes(cityCode)
+# Service: BusRouteInfoInqireService
+# Operation: getRouteNoList
+# Required: cityCode
+GET {{baseUrl}}/BusRouteInfoInqireService/getRouteNoList
+    ?serviceKey={{serviceKey}}
+    &_type=json
+    &pageNo={{pageNo}}
+    &numOfRows={{numOfRows}}
+    &cityCode={{cityCode}}
+
+### 3. Route detail
+# Code path: TagoRouteAdapter.loadRouteInfo(cityCode, sourceRouteId)
+# Service: BusRouteInfoInqireService
+# Operation: getRouteInfoIem
+# Required: cityCode, routeId
+GET {{baseUrl}}/BusRouteInfoInqireService/getRouteInfoIem
+    ?serviceKey={{serviceKey}}
+    &_type=json
+    &pageNo={{pageNo}}
+    &numOfRows={{numOfRows}}
+    &cityCode={{cityCode}}
+    &routeId={{routeId}}
+
+### 4. Stops by route
+# Code path: TagoRouteAdapter.loadRouteStops(cityCode, sourceRouteId)
+# Service: BusRouteInfoInqireService
+# Operation: getRouteAcctoThrghSttnList
+# Required: cityCode, routeId
+GET {{baseUrl}}/BusRouteInfoInqireService/getRouteAcctoThrghSttnList
+    ?serviceKey={{serviceKey}}
+    &_type=json
+    &pageNo={{pageNo}}
+    &numOfRows={{numOfRows}}
+    &cityCode={{cityCode}}
+    &routeId={{routeId}}
+
+### 5. Bus locations by route
+# Code path: TagoLocationAdapter.loadBusLocations(cityCode, sourceRouteId)
+# Service: BusLcInfoInqireService
+# Operation: getRouteAcctoBusLcList
+# Required: cityCode, routeId
+GET {{baseUrl}}/BusLcInfoInqireService/getRouteAcctoBusLcList
+    ?serviceKey={{serviceKey}}
+    &_type=json
+    &pageNo={{pageNo}}
+    &numOfRows={{numOfRows}}
+    &cityCode={{cityCode}}
+    &routeId={{routeId}}
+
+### 6. Arrivals by stop
+# Code path: TagoArrivalAdapter.loadArrivals(cityCode, sourceNodeId)
+# Service: ArvlInfoInqireService
+# Operation: getSttnAcctoArvlPrearngeInfoList
+# Required: cityCode, nodeId
+GET {{baseUrl}}/ArvlInfoInqireService/getSttnAcctoArvlPrearngeInfoList
+    ?serviceKey={{serviceKey}}
+    &_type=json
+    &pageNo={{pageNo}}
+    &numOfRows={{numOfRows}}
+    &cityCode={{cityCode}}
+    &nodeId={{nodeId}}

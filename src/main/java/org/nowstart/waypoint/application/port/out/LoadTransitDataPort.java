@@ -11,7 +11,7 @@ public interface LoadTransitDataPort {
 
     List<RouteReference> loadRoutes(String cityCode);
 
-    List<StopReference> loadStopsBySourceNodeIds(String cityCode, List<String> sourceNodeIds);
+    List<StopReference> loadStops(String cityCode);
 
     Optional<Instant> latestLocationCollectedAt();
 

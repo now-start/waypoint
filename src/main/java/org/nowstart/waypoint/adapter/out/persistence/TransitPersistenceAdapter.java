@@ -196,8 +196,8 @@ public class TransitPersistenceAdapter implements SaveTransitDataPort, LoadTrans
 
     @Override
     @Transactional(readOnly = true)
-    public List<StopReference> loadStopsBySourceNodeIds(String cityCode, List<String> sourceNodeIds) {
-        return busStopRepository.findAllByCityCodeAndSourceNodeIdIn(cityCode, sourceNodeIds).stream()
+    public List<StopReference> loadStops(String cityCode) {
+        return busStopRepository.findAllByCityCodeOrderBySourceNodeIdAsc(cityCode).stream()
                 .map(stop -> new StopReference(
                         stop.getId(),
                         stop.getCityCode(),

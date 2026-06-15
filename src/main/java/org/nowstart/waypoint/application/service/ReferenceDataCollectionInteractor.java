@@ -6,6 +6,8 @@ import org.nowstart.waypoint.application.port.out.LoadTagoRoutePort;
 import org.nowstart.waypoint.application.port.out.SaveTransitDataPort;
 import org.nowstart.waypoint.domain.type.CollectionApiType;
 import org.nowstart.waypoint.domain.type.CollectionStatus;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -13,6 +15,9 @@ import java.util.List;
 
 @Service
 public class ReferenceDataCollectionInteractor implements CollectReferenceDataUseCase {
+
+    private static final Logger log = LoggerFactory.getLogger(ReferenceDataCollectionInteractor.class);
+    private static final int PROGRESS_LOG_INTERVAL = 50;
 
     private final TagoCityCodeResolver cityCodeResolver;
     private final LoadTagoRoutePort routePort;
@@ -41,18 +46,31 @@ public class ReferenceDataCollectionInteractor implements CollectReferenceDataUs
         try {
             String cityCode = cityCodeResolver.resolve();
             List<LoadTagoRoutePort.TagoRoute> routes = routePort.loadRoutes(cityCode);
+            log.info("Loaded TAGO reference routes. cityCode={}, routeCount={}", cityCode, routes.size());
             EnrichmentResult enrichmentResult = enrichRoutes(cityCode, routes);
             List<LoadTagoRoutePort.TagoRoute> enrichedRoutes = enrichmentResult.routes();
             int routeCount = saveTransitDataPort.saveRoutes(cityCode, enrichedRoutes);
+            log.info("Saved TAGO reference routes. cityCode={}, routeCount={}", cityCode, routeCount);
 
             int stopCount = 0;
             int failureCount = enrichmentResult.failureCount();
+            int processedRouteCount = 0;
             for (LoadTagoRoutePort.TagoRoute route : enrichedRoutes) {
                 try {
                     List<LoadTagoRoutePort.TagoRouteStop> stops = routePort.loadRouteStops(cityCode, route.sourceRouteId());
                     stopCount += saveTransitDataPort.saveRouteStops(cityCode, route.sourceRouteId(), stops);
                 } catch (RuntimeException ex) {
                     failureCount++;
+                }
+                processedRouteCount++;
+                if (shouldLogProgress(processedRouteCount, enrichedRoutes.size())) {
+                    log.info(
+                            "Collecting TAGO reference route stops. processedRoutes={}, totalRoutes={}, stopRows={}, failures={}",
+                            processedRouteCount,
+                            enrichedRoutes.size(),
+                            stopCount,
+                            failureCount
+                    );
                 }
             }
 
@@ -74,6 +92,7 @@ public class ReferenceDataCollectionInteractor implements CollectReferenceDataUs
     ) {
         List<LoadTagoRoutePort.TagoRoute> enrichedRoutes = new ArrayList<>(routes.size());
         int failureCount = 0;
+        int processedRouteCount = 0;
         for (LoadTagoRoutePort.TagoRoute route : routes) {
             try {
                 enrichedRoutes.add(routePort.loadRouteInfo(cityCode, route.sourceRouteId()).orElse(route));
@@ -81,8 +100,21 @@ public class ReferenceDataCollectionInteractor implements CollectReferenceDataUs
                 failureCount++;
                 enrichedRoutes.add(route);
             }
+            processedRouteCount++;
+            if (shouldLogProgress(processedRouteCount, routes.size())) {
+                log.info(
+                        "Enriching TAGO reference routes. processedRoutes={}, totalRoutes={}, failures={}",
+                        processedRouteCount,
+                        routes.size(),
+                        failureCount
+                );
+            }
         }
         return new EnrichmentResult(enrichedRoutes, failureCount);
+    }
+
+    private static boolean shouldLogProgress(int processedCount, int totalCount) {
+        return processedCount == totalCount || processedCount % PROGRESS_LOG_INTERVAL == 0;
     }
 
     private static CollectionStatus status(int rowCount, int failureCount) {

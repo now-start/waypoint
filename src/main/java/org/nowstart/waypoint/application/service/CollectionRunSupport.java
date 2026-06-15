@@ -38,12 +38,13 @@ class CollectionRunSupport {
     CollectionResult fail(CollectionRun run, RuntimeException exception) {
         int httpStatus = 0;
         String resultCode = "FAILED";
-        String resultMessage = exception.getMessage();
+        String resultMessage = sanitize(exception.getMessage());
         if (exception instanceof TagoApiException tagoException) {
             httpStatus = tagoException.getHttpStatus();
             resultCode = tagoException.getResultCode();
-            resultMessage = tagoException.getResultMessage();
+            resultMessage = sanitize(tagoException.getResultMessage());
         }
+        String message = failureMessage(exception, resultCode, resultMessage);
         saveTransitDataPort.finishCollectionRun(
                 run.runId(),
                 CollectionStatus.FAILED,
@@ -51,17 +52,31 @@ class CollectionRunSupport {
                 resultCode,
                 resultMessage,
                 0,
-                exception.getMessage()
+                message
         );
         return new CollectionResult(
                 run.apiType(),
                 CollectionStatus.FAILED,
                 0,
                 1,
-                exception.getMessage(),
+                message,
                 run.startedAt(),
                 Instant.now()
         );
+    }
+
+    private static String failureMessage(RuntimeException exception, String resultCode, String resultMessage) {
+        if (exception instanceof TagoApiException) {
+            return "TAGO request failed. resultCode=" + resultCode + ", resultMessage=" + resultMessage;
+        }
+        return sanitize(exception.getMessage());
+    }
+
+    private static String sanitize(String value) {
+        if (value == null) {
+            return null;
+        }
+        return value.replaceAll("(?i)(serviceKey=)[^&\\s]+", "$1***");
     }
 
     record CollectionRun(
