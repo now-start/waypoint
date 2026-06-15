@@ -53,10 +53,10 @@ waypoint:
       reference-data-concurrency: 8
       location-concurrency: 8
       arrival-concurrency: 8
-      rate-limit: 20
+      rate-limit: 15
   ollama:
     base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
-    model: ${OLLAMA_MODEL:llama3.1}
+    model: ${OLLAMA_MODEL:gemma4:e4b}
   anomaly:
     headway-wide: 30m
     headway-narrow: 3m
