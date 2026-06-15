@@ -21,8 +21,7 @@ final class ConcurrentCollectionSupport {
             List<S> sources,
             int concurrency,
             Function<S, T> task,
-            Function<S, T> fallback,
-            Function<S, String> sourceLabel
+            Function<S, T> fallback
     ) {
         if (sources.isEmpty()) {
             return List.of();
@@ -40,7 +39,7 @@ final class ConcurrentCollectionSupport {
 
         if (effectiveConcurrency == 1) {
             List<TaskResult<S, T>> results = sources.stream()
-                    .map(source -> executeOne(taskName, source, task, fallback, sourceLabel))
+                    .map(source -> executeOne(source, task, fallback))
                     .toList();
             logFinished(taskName, results, startedAt);
             return results;
@@ -49,7 +48,7 @@ final class ConcurrentCollectionSupport {
         try (ExecutorService executor = Executors.newFixedThreadPool(effectiveConcurrency)) {
             List<CompletableFuture<TaskResult<S, T>>> futures = sources.stream()
                     .map(source -> CompletableFuture.supplyAsync(
-                            () -> executeOne(taskName, source, task, fallback, sourceLabel),
+                            () -> executeOne(source, task, fallback),
                             executor
                     ))
                     .toList();
@@ -63,35 +62,14 @@ final class ConcurrentCollectionSupport {
     }
 
     private static <S, T> TaskResult<S, T> executeOne(
-            String taskName,
             S source,
             Function<S, T> task,
-            Function<S, T> fallback,
-            Function<S, String> sourceLabel
+            Function<S, T> fallback
     ) {
-        String label = sourceLabel.apply(source);
-        long startedAt = System.nanoTime();
-        log.info("Starting collection task. taskName={}, source={}, thread={}", taskName, label, Thread.currentThread().getName());
         try {
             T value = task.apply(source);
-            log.info(
-                    "Finished collection task. taskName={}, source={}, thread={}, durationMs={}",
-                    taskName,
-                    label,
-                    Thread.currentThread().getName(),
-                    elapsedMillis(startedAt)
-            );
             return new TaskResult<>(source, value, null);
         } catch (RuntimeException ex) {
-            log.info(
-                    "Failed collection task. taskName={}, source={}, thread={}, durationMs={}, errorType={}, message={}",
-                    taskName,
-                    label,
-                    Thread.currentThread().getName(),
-                    elapsedMillis(startedAt),
-                    ex.getClass().getSimpleName(),
-                    sanitizedMessage(ex)
-            );
             return new TaskResult<>(source, fallback.apply(source), ex);
         }
     }
@@ -111,17 +89,6 @@ final class ConcurrentCollectionSupport {
 
     private static long elapsedMillis(long startedAt) {
         return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
-    }
-
-    private static String sanitizedMessage(RuntimeException ex) {
-        String message = ex.getMessage();
-        if (message == null || message.isBlank()) {
-            return "";
-        }
-        String sanitized = message
-                .replaceAll("(?i)(serviceKey=)[^&\\s]+", "$1***")
-                .replaceAll("[\\r\\n\\t]+", " ");
-        return sanitized.length() > 300 ? sanitized.substring(0, 300) : sanitized;
     }
 
     record TaskResult<S, T>(

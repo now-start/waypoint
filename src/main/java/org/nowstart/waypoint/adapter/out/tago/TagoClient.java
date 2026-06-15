@@ -1,7 +1,6 @@
 package org.nowstart.waypoint.adapter.out.tago;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import lombok.extern.slf4j.Slf4j;
 import org.nowstart.waypoint.application.port.out.TagoApiException;
 import org.nowstart.waypoint.config.TagoProperties;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -12,34 +11,31 @@ import org.springframework.web.client.RestClientResponseException;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 @Component
-@Slf4j
 public class TagoClient {
 
     private static final String TYPE_JSON = "json";
 
     private final TagoProperties properties;
     private final TagoResponseParser parser;
+    private final TagoRequestRateLimiter rateLimiter;
     private final RestClient restClient;
 
-    public TagoClient(TagoProperties properties, TagoResponseParser parser) {
+    public TagoClient(TagoProperties properties, TagoResponseParser parser, TagoRequestRateLimiter rateLimiter) {
         this.properties = properties;
         this.parser = parser;
+        this.rateLimiter = rateLimiter;
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(properties.connectTimeout());
         requestFactory.setReadTimeout(properties.readTimeout());
         this.restClient = RestClient.builder()
                 .requestFactory(requestFactory)
                 .build();
-        logServiceKeyDiagnostics(properties.serviceKey());
     }
 
     public List<JsonNode> fetchItems(String serviceName, String operationName, Map<String, String> params) {
@@ -101,6 +97,7 @@ public class TagoClient {
     ) {
         URI uri = buildUri(serviceName, operationName, params);
         try {
+            rateLimiter.acquire();
             String rawBody = restClient.get()
                     .uri(uri)
                     .retrieve()
@@ -174,27 +171,5 @@ public class TagoClient {
 
     private static String encode(String value) {
         return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
-    }
-
-    private static void logServiceKeyDiagnostics(String serviceKey) {
-        if (serviceKey == null || serviceKey.isBlank()) {
-            log.warn("TAGO service key is not configured.");
-            return;
-        }
-        log.info(
-                "TAGO service key is configured. length={}, encoded={}, fingerprint={}",
-                serviceKey.length(),
-                serviceKey.contains("%"),
-                fingerprint(serviceKey)
-        );
-    }
-
-    private static String fingerprint(String value) {
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(digest, 0, 6);
-        } catch (NoSuchAlgorithmException ex) {
-            return "unavailable";
-        }
     }
 }

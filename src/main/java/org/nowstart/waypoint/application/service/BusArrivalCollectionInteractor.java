@@ -60,8 +60,7 @@ public class BusArrivalCollectionInteractor implements CollectBusArrivalUseCase 
                     stops,
                     concurrency,
                     stop -> arrivalPort.loadArrivals(cityCode, stop.sourceNodeId()),
-                    stop -> List.of(),
-                    LoadTransitDataPort.StopReference::sourceNodeId
+                    stop -> List.of()
             );
 
             List<LoadTagoArrivalPort.TagoBusArrival> arrivals = new ArrayList<>();
@@ -131,25 +130,14 @@ public class BusArrivalCollectionInteractor implements CollectBusArrivalUseCase 
                     List<LoadTagoArrivalPort.TagoBusArrival>> result
     ) {
         log.warn(
-                "TAGO bus arrival fetch failed. sourceNodeId={}, errorType={}, message={}",
+                "TAGO bus arrival fetch failed. sourceNodeId={}, errorType={}, detail={}",
                 result.source().sourceNodeId(),
                 result.failure().getClass().getSimpleName(),
-                sanitizedMessage(result.failure())
+                CollectionFailureMessages.describe(result.failure())
         );
     }
 
     private static long elapsedMillis(long startedAt) {
         return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
-    }
-
-    private static String sanitizedMessage(RuntimeException ex) {
-        String message = ex.getMessage();
-        if (message == null || message.isBlank()) {
-            return "";
-        }
-        String sanitized = message
-                .replaceAll("(?i)(serviceKey=)[^&\\s]+", "$1***")
-                .replaceAll("[\\r\\n\\t]+", " ");
-        return sanitized.length() > 300 ? sanitized.substring(0, 300) : sanitized;
     }
 }

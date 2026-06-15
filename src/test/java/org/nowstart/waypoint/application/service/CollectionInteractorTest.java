@@ -16,6 +16,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -164,10 +165,84 @@ class CollectionInteractorTest {
                 CollectionStatus.PARTIAL,
                 200,
                 "OK",
-                "locations=2, routeFailures=1, failedRouteIds=[CWB102]",
+                "locations=2, routeFailures=1, skippedInactiveRoutes=0, failedRouteIds=[CWB102]",
                 2,
                 null
         );
+    }
+
+    @Test
+    @DisplayName("노선 운행 시간 판정은 첫차와 막차 사이에만 활성으로 본다")
+    void routeOperationWindowActiveOnlyBetweenFirstAndLastVehicleTime() {
+        // given: 05:20부터 23:10까지 운행하는 노선
+        LoadTransitDataPort.RouteReference route = new LoadTransitDataPort.RouteReference(
+                "38010",
+                "CWB101",
+                "101",
+                "0520",
+                "2310"
+        );
+
+        // then: 운행 시간 안에서는 활성이고, 운행 시간 밖에서는 비활성이다
+        then(RouteOperationWindow.isActive(route, LocalTime.of(5, 20))).isTrue();
+        then(RouteOperationWindow.isActive(route, LocalTime.of(12, 0))).isTrue();
+        then(RouteOperationWindow.isActive(route, LocalTime.of(23, 10))).isTrue();
+        then(RouteOperationWindow.isActive(route, LocalTime.of(4, 59))).isFalse();
+        then(RouteOperationWindow.isActive(route, LocalTime.of(23, 11))).isFalse();
+    }
+
+    @Test
+    @DisplayName("막차가 자정을 넘는 노선은 날짜 경계를 넘어 운행 중으로 본다")
+    void routeOperationWindowSupportsOvernightRoutes() {
+        // given: 23:30부터 다음날 01:10까지 운행하는 노선
+        LoadTransitDataPort.RouteReference route = new LoadTransitDataPort.RouteReference(
+                "38010",
+                "CWB900",
+                "900",
+                "2330",
+                "0110"
+        );
+
+        // then: 자정 전후 모두 운행 시간으로 본다
+        then(RouteOperationWindow.isActive(route, LocalTime.of(23, 40))).isTrue();
+        then(RouteOperationWindow.isActive(route, LocalTime.of(0, 30))).isTrue();
+        then(RouteOperationWindow.isActive(route, LocalTime.of(2, 0))).isFalse();
+    }
+
+    @Test
+    @DisplayName("첫차와 막차 시간이 없으면 기본 운행 시간 05:00부터 23:30까지로 본다")
+    void routeOperationWindowUsesDefaultWindowWhenRouteTimesAreMissing() {
+        // given: 첫차와 막차 시간이 아직 저장되지 않은 노선
+        LoadTransitDataPort.RouteReference route = new LoadTransitDataPort.RouteReference(
+                "38010",
+                "CWB101",
+                "101",
+                null,
+                null
+        );
+
+        // then: 기본 운행 시간 안에서만 활성으로 본다
+        then(RouteOperationWindow.isActive(route, LocalTime.of(5, 0))).isTrue();
+        then(RouteOperationWindow.isActive(route, LocalTime.of(23, 30))).isTrue();
+        then(RouteOperationWindow.isActive(route, LocalTime.of(4, 59))).isFalse();
+        then(RouteOperationWindow.isActive(route, LocalTime.of(23, 31))).isFalse();
+    }
+
+    @Test
+    @DisplayName("첫차와 막차 중 하나만 없으면 기본 운행 시간 전체를 사용한다")
+    void routeOperationWindowUsesDefaultWindowWhenEitherRouteTimeIsMissing() {
+        // given: 첫차만 있고 막차가 없는 노선
+        LoadTransitDataPort.RouteReference route = new LoadTransitDataPort.RouteReference(
+                "38010",
+                "CWB101",
+                "101",
+                "2330",
+                null
+        );
+
+        // then: 24시간 운행으로 열지 않고 기본 운행 시간으로 제한한다
+        then(RouteOperationWindow.isActive(route, LocalTime.of(12, 0))).isTrue();
+        then(RouteOperationWindow.isActive(route, LocalTime.of(23, 31))).isFalse();
     }
 
     @Test
@@ -239,7 +314,7 @@ class CollectionInteractorTest {
     }
 
     private static LoadTransitDataPort.RouteReference route(String sourceRouteId, String routeNo) {
-        return new LoadTransitDataPort.RouteReference("38010", sourceRouteId, routeNo);
+        return new LoadTransitDataPort.RouteReference("38010", sourceRouteId, routeNo, "0000", "0000");
     }
 
     private static LoadTransitDataPort.StopReference stop(String sourceNodeId, String nodeName) {
@@ -265,7 +340,8 @@ class CollectionInteractorTest {
         return new TagoCollectionProperties(
                 referenceDataConcurrency,
                 referenceDataConcurrency,
-                referenceDataConcurrency
+                referenceDataConcurrency,
+                25
         );
     }
 

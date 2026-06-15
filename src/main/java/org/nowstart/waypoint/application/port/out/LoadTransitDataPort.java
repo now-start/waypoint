@@ -24,7 +24,9 @@ public interface LoadTransitDataPort {
     record RouteReference(
             String cityCode,
             String sourceRouteId,
-            String routeNo
+            String routeNo,
+            String firstVehicleTime,
+            String lastVehicleTime
     ) {
     }
 

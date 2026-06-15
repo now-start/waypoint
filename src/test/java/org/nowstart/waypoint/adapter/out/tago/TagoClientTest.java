@@ -19,6 +19,10 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.assertj.core.api.BDDAssertions.then;
 import static org.assertj.core.api.BDDAssertions.thenThrownBy;
 import static org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 class TagoClientTest {
 
@@ -35,7 +39,8 @@ class TagoClientTest {
                 Duration.ofMillis(10),
                 Duration.ofMillis(10)
         );
-        TagoClient client = new TagoClient(properties, new TagoResponseParser(new ObjectMapper()));
+        TagoRequestRateLimiter rateLimiter = mock(TagoRequestRateLimiter.class);
+        TagoClient client = new TagoClient(properties, new TagoResponseParser(new ObjectMapper()), rateLimiter);
 
         // when: fetchItems를 호출한다
         ThrowingCallable fetchItems = () -> client.fetchItems("BusRouteInfoInqireService", "getCtyCodeList", Map.of());
@@ -44,6 +49,7 @@ class TagoClientTest {
         thenThrownBy(fetchItems)
                 .isInstanceOfSatisfying(TagoApiException.class, exception ->
                         then(exception.getResultCode()).isEqualTo("MISSING_SERVICE_KEY"));
+        verify(rateLimiter, never()).acquire();
     }
 
     @Test
@@ -77,7 +83,8 @@ class TagoClientTest {
                     Duration.ofMillis(500),
                     Duration.ofMillis(500)
             );
-            TagoClient client = new TagoClient(properties, new TagoResponseParser(new ObjectMapper()));
+            TagoRequestRateLimiter rateLimiter = mock(TagoRequestRateLimiter.class);
+            TagoClient client = new TagoClient(properties, new TagoResponseParser(new ObjectMapper()), rateLimiter);
 
             // when: 전체 항목을 조회한다
             List<?> items = client.fetchItems("BusRouteInfoInqireService", "getRouteList", Map.of());
@@ -85,6 +92,7 @@ class TagoClientTest {
             // then: totalCount를 채울 때까지 모든 페이지를 조회한다
             then(items).hasSize(5);
             then(callCount).hasValue(3);
+            verify(rateLimiter, times(3)).acquire();
         } finally {
             server.stop(0);
         }
@@ -115,7 +123,8 @@ class TagoClientTest {
                     Duration.ofMillis(500),
                     Duration.ofMillis(500)
             );
-            TagoClient client = new TagoClient(properties, new TagoResponseParser(new ObjectMapper()));
+            TagoRequestRateLimiter rateLimiter = mock(TagoRequestRateLimiter.class);
+            TagoClient client = new TagoClient(properties, new TagoResponseParser(new ObjectMapper()), rateLimiter);
 
             // when: TAGO API를 호출한다
             client.fetchItems("BusRouteInfoInqireService", "getCtyCodeList", Map.of());
@@ -125,6 +134,7 @@ class TagoClientTest {
                     .contains("serviceKey=abc%2Bdef%3D%3D")
                     .doesNotContain("%252B")
                     .doesNotContain("%253D");
+            verify(rateLimiter).acquire();
         } finally {
             server.stop(0);
         }
@@ -155,7 +165,8 @@ class TagoClientTest {
                     Duration.ofMillis(500),
                     Duration.ofMillis(500)
             );
-            TagoClient client = new TagoClient(properties, new TagoResponseParser(new ObjectMapper()));
+            TagoRequestRateLimiter rateLimiter = mock(TagoRequestRateLimiter.class);
+            TagoClient client = new TagoClient(properties, new TagoResponseParser(new ObjectMapper()), rateLimiter);
 
             // when: 전체 항목을 조회한다
             ThrowingCallable fetchItems =
@@ -166,6 +177,7 @@ class TagoClientTest {
                     .isInstanceOfSatisfying(TagoApiException.class, exception ->
                             then(exception.getResultCode()).isEqualTo("MISSING_TOTAL_COUNT"));
             then(callCount).hasValue(1);
+            verify(rateLimiter).acquire();
         } finally {
             server.stop(0);
         }

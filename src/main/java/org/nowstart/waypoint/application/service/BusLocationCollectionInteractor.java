@@ -12,6 +12,8 @@ import org.nowstart.waypoint.domain.type.CollectionApiType;
 import org.nowstart.waypoint.domain.type.CollectionStatus;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -22,6 +24,7 @@ import java.util.concurrent.TimeUnit;
 public class BusLocationCollectionInteractor implements CollectBusLocationUseCase {
 
     private static final int FAILURE_MESSAGE_LIMIT = 10;
+    private static final ZoneId TAGO_ZONE = ZoneId.of("Asia/Seoul");
 
     private final TagoCityCodeResolver cityCodeResolver;
     private final LoadTransitDataPort loadTransitDataPort;
@@ -45,10 +48,26 @@ public class BusLocationCollectionInteractor implements CollectBusLocationUseCas
             }
 
             int concurrency = collectionProperties.locationConcurrency();
+            LocalTime now = LocalTime.now(TAGO_ZONE);
+            List<LoadTransitDataPort.RouteReference> activeRoutes = routes.stream()
+                    .filter(route -> RouteOperationWindow.isActive(route, now))
+                    .toList();
+            int skippedRouteCount = routes.size() - activeRoutes.size();
+            if (activeRoutes.isEmpty()) {
+                return runSupport.finish(
+                        run,
+                        CollectionStatus.EMPTY,
+                        0,
+                        0,
+                        "운행 시간대에 해당하는 노선이 없습니다. skippedInactiveRoutes=" + skippedRouteCount
+                );
+            }
             log.info(
-                    "Starting TAGO bus location fetch. cityCode={}, routeCount={}, concurrency={}",
+                    "Starting TAGO bus location fetch. cityCode={}, routeCount={}, activeRouteCount={}, skippedInactiveRoutes={}, concurrency={}",
                     cityCode,
                     routes.size(),
+                    activeRoutes.size(),
+                    skippedRouteCount,
                     concurrency
             );
             long fetchStartedAt = System.nanoTime();
@@ -56,11 +75,10 @@ public class BusLocationCollectionInteractor implements CollectBusLocationUseCas
                     LoadTransitDataPort.RouteReference,
                     List<LoadTagoLocationPort.TagoBusLocation>>> results = ConcurrentCollectionSupport.execute(
                     "bus-location",
-                    routes,
+                    activeRoutes,
                     concurrency,
                     route -> locationPort.loadBusLocations(cityCode, route.sourceRouteId()),
-                    route -> List.of(),
-                    LoadTransitDataPort.RouteReference::sourceRouteId
+                    route -> List.of()
             );
 
             List<LoadTagoLocationPort.TagoBusLocation> locations = new ArrayList<>();
@@ -82,9 +100,11 @@ public class BusLocationCollectionInteractor implements CollectBusLocationUseCas
                 }
             }
             log.info(
-                    "Finished TAGO bus location fetch. cityCode={}, routeCount={}, locationRows={}, failures={}, durationMs={}",
+                    "Finished TAGO bus location fetch. cityCode={}, routeCount={}, activeRouteCount={}, skippedInactiveRoutes={}, locationRows={}, failures={}, durationMs={}",
                     cityCode,
                     routes.size(),
+                    activeRoutes.size(),
+                    skippedRouteCount,
                     locations.size(),
                     failureCount,
                     elapsedMillis(fetchStartedAt)
@@ -101,14 +121,21 @@ public class BusLocationCollectionInteractor implements CollectBusLocationUseCas
 
             CollectionStatus status = status(rowCount, failureCount);
             return runSupport.finish(run, status, rowCount, failureCount,
-                    resultMessage(rowCount, failureCount, failedRouteIds));
+                    resultMessage(rowCount, failureCount, skippedRouteCount, failedRouteIds));
         } catch (RuntimeException ex) {
             return runSupport.fail(run, ex);
         }
     }
 
-    private static String resultMessage(int rowCount, int failureCount, List<String> failedRouteIds) {
-        String message = "locations=" + rowCount + ", routeFailures=" + failureCount;
+    private static String resultMessage(
+            int rowCount,
+            int failureCount,
+            int skippedRouteCount,
+            List<String> failedRouteIds
+    ) {
+        String message = "locations=" + rowCount
+                + ", routeFailures=" + failureCount
+                + ", skippedInactiveRoutes=" + skippedRouteCount;
         if (failedRouteIds.isEmpty()) {
             return message;
         }
@@ -130,25 +157,14 @@ public class BusLocationCollectionInteractor implements CollectBusLocationUseCas
                     List<LoadTagoLocationPort.TagoBusLocation>> result
     ) {
         log.warn(
-                "TAGO bus location fetch failed. sourceRouteId={}, errorType={}, message={}",
+                "TAGO bus location fetch failed. sourceRouteId={}, errorType={}, detail={}",
                 result.source().sourceRouteId(),
                 result.failure().getClass().getSimpleName(),
-                sanitizedMessage(result.failure())
+                CollectionFailureMessages.describe(result.failure())
         );
     }
 
     private static long elapsedMillis(long startedAt) {
         return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
-    }
-
-    private static String sanitizedMessage(RuntimeException ex) {
-        String message = ex.getMessage();
-        if (message == null || message.isBlank()) {
-            return "";
-        }
-        String sanitized = message
-                .replaceAll("(?i)(serviceKey=)[^&\\s]+", "$1***")
-                .replaceAll("[\\r\\n\\t]+", " ");
-        return sanitized.length() > 300 ? sanitized.substring(0, 300) : sanitized;
     }
 }

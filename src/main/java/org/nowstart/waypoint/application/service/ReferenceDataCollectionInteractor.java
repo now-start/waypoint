@@ -170,8 +170,7 @@ public class ReferenceDataCollectionInteractor implements CollectReferenceDataUs
                         routes,
                         concurrency,
                         task,
-                        fallback,
-                        LoadTagoRoutePort.TagoRoute::sourceRouteId
+                        fallback
                 );
         List<RouteTaskResult<T>> results = new ArrayList<>(taskResults.size());
         for (ConcurrentCollectionSupport.TaskResult<LoadTagoRoutePort.TagoRoute, T> result : taskResults) {
@@ -192,26 +191,15 @@ public class ReferenceDataCollectionInteractor implements CollectReferenceDataUs
         int logIndex = failureLogCount.incrementAndGet();
         if (logIndex <= FAILURE_LOG_LIMIT) {
             log.warn(
-                    "TAGO reference {} failed. sourceRouteId={}, errorType={}, message={}",
+                    "TAGO reference {} failed. sourceRouteId={}, errorType={}, detail={}",
                     taskName,
                     route.sourceRouteId(),
                     ex.getClass().getSimpleName(),
-                    sanitizedMessage(ex)
+                    CollectionFailureMessages.describe(ex)
             );
         } else if (logIndex == FAILURE_LOG_LIMIT + 1) {
             log.warn("Suppressing further TAGO reference {} failure logs.", taskName);
         }
-    }
-
-    private static String sanitizedMessage(RuntimeException ex) {
-        String message = ex.getMessage();
-        if (message == null || message.isBlank()) {
-            return "";
-        }
-        String sanitized = message
-                .replaceAll("(?i)(serviceKey=)[^&\\s]+", "$1***")
-                .replaceAll("[\\r\\n\\t]+", " ");
-        return sanitized.length() > 300 ? sanitized.substring(0, 300) : sanitized;
     }
 
     private static boolean shouldLogProgress(int processedCount, int totalCount) {

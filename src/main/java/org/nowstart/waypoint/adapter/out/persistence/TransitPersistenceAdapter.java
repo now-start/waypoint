@@ -233,7 +233,13 @@ public class TransitPersistenceAdapter implements SaveTransitDataPort, LoadTrans
     @Transactional(readOnly = true)
     public List<RouteReference> loadRoutes(String cityCode) {
         return busRouteRepository.findAllByCityCodeOrderByRouteNoAsc(cityCode).stream()
-                .map(route -> new RouteReference(route.getCityCode(), route.getSourceRouteId(), route.getRouteNo()))
+                .map(route -> new RouteReference(
+                        route.getCityCode(),
+                        route.getSourceRouteId(),
+                        route.getRouteNo(),
+                        route.getFirstVehicleTime(),
+                        route.getLastVehicleTime()
+                ))
                 .toList();
     }
 

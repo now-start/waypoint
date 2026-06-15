@@ -46,11 +46,12 @@ waypoint:
     connect-timeout: 5s
     read-timeout: 20s
     collection:
-      location-fixed-delay: 10s
+      location-fixed-delay: 30m
       location-initial-delay: 0s
       reference-data-concurrency: 8
       location-concurrency: 8
       arrival-concurrency: 8
+      rate-limit: 20
   ollama:
     base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
     model: ${OLLAMA_MODEL:llama3.1}
