@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Waypoint</title>
+    <link href="/webjars/bootstrap/5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/styles.css" rel="stylesheet">
+</head>
+<body>
+<nav class="navbar navbar-expand-lg bg-white border-bottom sticky-top">
+    <div class="container-fluid px-4">
+        <a class="navbar-brand fw-semibold" href="/">
+            <span class="brand-mark">W</span>
+            Waypoint
+        </a>
+        <div class="d-flex align-items-center gap-3 ms-auto toolbar-actions">
+            <div class="form-check form-switch mb-0">
+                <input class="form-check-input" id="autoRefreshToggle" type="checkbox" role="switch" checked>
+                <label class="form-check-label small text-secondary" for="autoRefreshToggle">
+                    자동 갱신 <span id="refreshCountdown">30초</span>
+                </label>
+            </div>
+            <span class="text-secondary small" id="updatedAt">-</span>
+            <button class="btn btn-outline-secondary btn-sm" id="refreshButton" type="button">새로고침</button>
+        </div>
+    </div>
+</nav>
+
+<main class="container-fluid px-4 py-4">
+    <section class="dashboard-header mb-4">
+        <div>
+            <p class="text-uppercase text-primary fw-semibold small mb-2">Changwon Transit Operations</p>
+            <h1 class="h3 fw-bold mb-2">운영 통합 대시보드</h1>
+            <p class="text-secondary mb-0">운행 이상징후, 수집 상태, 최근 실행 결과를 한 화면에서 확인합니다.</p>
+        </div>
+        <div class="quick-actions">
+            <button class="btn btn-primary" data-collect-url="/api/collections/reference-data" type="button">기준 데이터 수집</button>
+            <button class="btn btn-outline-primary" data-collect-url="/api/collections/locations" type="button">위치 수집</button>
+            <button class="btn btn-outline-primary" data-collect-url="/api/collections/arrivals" type="button">도착정보 수집</button>
+        </div>
+    </section>
+
+    <section class="row g-3 mb-4" id="metricCards">
+        <div class="col-12 col-md-6 col-xl-2">
+            <button class="metric-card metric-action" data-detail-title="노선 상세" data-detail-type="routes" type="button">
+                <span>노선</span>
+                <strong id="routeCount">0</strong>
+                <small>상세 보기</small>
+            </button>
+        </div>
+        <div class="col-12 col-md-6 col-xl-2">
+            <button class="metric-card metric-action" data-detail-title="정류소 상세" data-detail-type="stops" type="button">
+                <span>정류소</span>
+                <strong id="stopCount">0</strong>
+                <small>상세 보기</small>
+            </button>
+        </div>
+        <div class="col-12 col-md-6 col-xl-2">
+            <button class="metric-card metric-action" data-detail-title="노선-정류소 상세" data-detail-type="route-stops" type="button">
+                <span>노선-정류소</span>
+                <strong id="routeStopCount">0</strong>
+                <small>상세 보기</small>
+            </button>
+        </div>
+        <div class="col-12 col-md-6 col-xl-3">
+            <button class="metric-card metric-action" data-detail-title="위치 스냅샷 상세" data-detail-type="locations" type="button">
+                <span>위치 스냅샷</span>
+                <strong id="locationSnapshotCount">0</strong>
+                <small id="latestLocationCollectedAt">-</small>
+            </button>
+        </div>
+        <div class="col-12 col-md-6 col-xl-3">
+            <button class="metric-card metric-action" data-detail-title="도착 스냅샷 상세" data-detail-type="arrivals" type="button">
+                <span>도착 스냅샷</span>
+                <strong id="arrivalSnapshotCount">0</strong>
+                <small id="latestArrivalCollectedAt">-</small>
+            </button>
+        </div>
+    </section>
+
+    <div class="row g-4">
+        <section class="col-12 col-xl-8">
+            <div class="panel mb-4">
+                <div class="panel-header">
+                    <div>
+                        <h2 class="h5 mb-1">이상징후</h2>
+                        <p class="text-secondary small mb-0">차량 간격, 위치 갱신 지연 등 운행 관점의 확인 대상</p>
+                    </div>
+                    <span class="badge text-bg-light" id="anomalyCount">0건</span>
+                </div>
+                <div class="table-responsive">
+                    <table class="table align-middle mb-0">
+                        <thead>
+                        <tr>
+                            <th>심각도</th>
+                            <th>노선</th>
+                            <th>유형</th>
+                            <th>기준 배차</th>
+                            <th>관측값</th>
+                            <th>판정 근거</th>
+                            <th>갱신</th>
+                            <th></th>
+                        </tr>
+                        </thead>
+                        <tbody id="anomalyBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-header">
+                    <div>
+                        <h2 class="h5 mb-1">최근 수집 실행</h2>
+                        <p class="text-secondary small mb-0">최신 실행 20건</p>
+                    </div>
+                    <span class="badge text-bg-light" id="runCount">0건</span>
+                </div>
+                <div class="table-responsive">
+                    <table class="table align-middle mb-0">
+                        <thead>
+                        <tr>
+                            <th>상태</th>
+                            <th>API</th>
+                            <th>요청키</th>
+                            <th class="text-end">행 수</th>
+                            <th>시작</th>
+                            <th>종료</th>
+                        </tr>
+                        </thead>
+                        <tbody id="runsBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <aside class="col-12 col-xl-4">
+            <div class="panel mb-4">
+                <div class="panel-header">
+                    <div>
+                        <h2 class="h5 mb-1">수집 이슈</h2>
+                        <p class="text-secondary small mb-0">실패 또는 부분 성공한 데이터 수집 실행</p>
+                    </div>
+                </div>
+                <div id="collectionIssueList" class="incident-list"></div>
+            </div>
+
+            <div class="panel briefing-panel">
+                <div class="panel-header">
+                    <div>
+                        <h2 class="h5 mb-1">AI 브리핑</h2>
+                        <p class="text-secondary small mb-0">운영자 요약 초안</p>
+                    </div>
+                    <button class="btn btn-dark btn-sm" id="briefingButton" type="button">생성</button>
+                </div>
+                <div id="briefingText" class="briefing-text">
+                    현재 수집 상태를 기준으로 주요 확인 대상을 정리합니다.
+                </div>
+            </div>
+        </aside>
+    </div>
+</main>
+
+<div class="modal fade" id="detailModal" tabindex="-1" aria-labelledby="detailModalTitle" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <h2 class="modal-title h5" id="detailModalTitle">상세 조회</h2>
+                    <p class="text-secondary small mb-0" id="detailModalSummary">최대 50건</p>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button>
+            </div>
+            <div class="modal-body p-0">
+                <div class="table-responsive">
+                    <table class="table align-middle mb-0">
+                        <thead id="detailTableHead"></thead>
+                        <tbody id="detailTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="toast-container position-fixed bottom-0 end-0 p-3">
+    <div class="toast align-items-center text-bg-dark border-0" id="messageToast" role="status" aria-live="polite" aria-atomic="true">
+        <div class="d-flex">
+            <div class="toast-body" id="toastBody"></div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="닫기"></button>
+        </div>
+    </div>
+</div>
+
+<script src="/webjars/bootstrap/5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
