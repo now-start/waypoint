@@ -30,6 +30,7 @@ repositories {
 
 ext {
     springDocVersion = "3.0.3"
+    springAiVersion = "2.0.0"
     opentelemetryVersion = "2.28.1"
     springCloudVersion = "2025.1.1"
 }
@@ -45,6 +46,7 @@ dependencies {
     implementation 'org.springframework.cloud:spring-cloud-starter-circuitbreaker-resilience4j'
     implementation 'org.springframework.cloud:spring-cloud-starter-config'
     implementation 'org.springframework.cloud:spring-cloud-starter-netflix-eureka-client'
+    implementation 'org.springframework.ai:spring-ai-starter-model-ollama'
     implementation 'org.webjars.npm:bootstrap:5.3.3'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     developmentOnly 'org.springframework.boot:spring-boot-devtools'
@@ -57,6 +59,7 @@ dependencies {
 dependencyManagement {
     imports {
         mavenBom "org.springdoc:springdoc-openapi-bom:$springDocVersion"
+        mavenBom "org.springframework.ai:spring-ai-bom:$springAiVersion"
         mavenBom "io.opentelemetry.instrumentation:opentelemetry-instrumentation-bom:$opentelemetryVersion"
         mavenBom "org.springframework.cloud:spring-cloud-dependencies:$springCloudVersion"
     }

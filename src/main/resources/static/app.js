@@ -277,7 +277,7 @@ function startAutoRefresh() {
     }, 1000);
 }
 
-function renderBriefing() {
+function renderFallbackBriefing() {
     if (sampleAnomalies.length > 0) {
         const top = sampleAnomalies[0];
         elements.briefingText.textContent = `${top.routeNo}번 ${top.area} 구간에서 ${top.type} 징후가 우선 확인 대상입니다. 원래 배차는 ${top.baseline}이고, 최근 스냅샷에서는 ${top.observed}으로 관측되어 ${top.metric} 차이가 있습니다. 실제 원인은 현장 상황과 추가 수집 데이터를 함께 확인해야 합니다.`;
@@ -297,6 +297,29 @@ function renderBriefing() {
 
     const items = [...failed, ...partial].slice(0, 3).map((run) => `${run.apiType} ${run.status}`).join(", ");
     elements.briefingText.textContent = `${items} 실행을 먼저 확인해야 합니다. 오류 메시지와 수집 행 수를 기준으로 API 응답 누락, 부분 저장, 외부 호출 실패 여부를 점검하는 것이 좋습니다.`;
+}
+
+async function renderBriefing() {
+    const button = document.querySelector("#briefingButton");
+    const originalText = button.textContent;
+    button.disabled = true;
+    button.textContent = "생성 중";
+    elements.briefingText.textContent = "AI 브리핑을 생성하고 있습니다.";
+
+    try {
+        const response = await fetchJson("/api/briefings/operations", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({anomalies: sampleAnomalies})
+        });
+        elements.briefingText.textContent = response.content || "AI 브리핑 결과가 비어 있습니다.";
+    } catch (error) {
+        renderFallbackBriefing();
+        showToast(`AI 브리핑 실패, 로컬 요약 사용: ${error.message}`);
+    } finally {
+        button.disabled = false;
+        button.textContent = originalText;
+    }
 }
 
 function renderDetailTable(payload) {
