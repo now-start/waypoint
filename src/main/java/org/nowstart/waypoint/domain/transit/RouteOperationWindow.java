@@ -1,6 +1,4 @@
-package org.nowstart.waypoint.application.service;
-
-import org.nowstart.waypoint.application.port.out.LoadTransitDataPort;
+package org.nowstart.waypoint.domain.transit;
 
 import java.time.LocalTime;
 import java.util.Optional;
@@ -13,7 +11,7 @@ final class RouteOperationWindow {
     private RouteOperationWindow() {
     }
 
-    static boolean isActive(LoadTransitDataPort.RouteReference route, LocalTime now) {
+    static boolean isActive(RouteCollectionCandidate route, LocalTime now) {
         Optional<LocalTime> parsedFirstVehicleTime = parse(route.firstVehicleTime());
         Optional<LocalTime> parsedLastVehicleTime = parse(route.lastVehicleTime());
         LocalTime firstVehicleTime = DEFAULT_FIRST_VEHICLE_TIME;

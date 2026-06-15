@@ -8,15 +8,20 @@ import org.nowstart.waypoint.application.port.out.LoadTagoLocationPort;
 import org.nowstart.waypoint.application.port.out.LoadTransitDataPort;
 import org.nowstart.waypoint.application.port.out.SaveTransitDataPort;
 import org.nowstart.waypoint.config.TagoCollectionProperties;
+import org.nowstart.waypoint.domain.transit.RouteCollectionCandidate;
+import org.nowstart.waypoint.domain.transit.RouteLocationCollectionPolicy;
 import org.nowstart.waypoint.domain.type.CollectionApiType;
 import org.nowstart.waypoint.domain.type.CollectionStatus;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalTime;
+import java.time.Instant;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
 @RequiredArgsConstructor
@@ -32,9 +37,32 @@ public class BusLocationCollectionInteractor implements CollectBusLocationUseCas
     private final SaveTransitDataPort saveTransitDataPort;
     private final CollectionRunSupport runSupport;
     private final TagoCollectionProperties collectionProperties;
+    private final LocationCollectionAttemptRegistry attemptRegistry;
+    private final AtomicBoolean collectionRunning = new AtomicBoolean(false);
 
     @Override
     public CollectionResult collect() {
+        Instant startedAt = Instant.now();
+        if (!collectionRunning.compareAndSet(false, true)) {
+            String message = "이미 TAGO 버스 위치 수집이 진행 중입니다.";
+            return new CollectionResult(
+                    CollectionApiType.BUS_LOCATION,
+                    CollectionStatus.EMPTY,
+                    0,
+                    0,
+                    message,
+                    startedAt,
+                    Instant.now()
+            );
+        }
+        try {
+            return collectLocked();
+        } finally {
+            collectionRunning.set(false);
+        }
+    }
+
+    private CollectionResult collectLocked() {
         CollectionRunSupport.CollectionRun run = runSupport.start(
                 CollectionApiType.BUS_LOCATION,
                 "changwon-all-route-locations",
@@ -48,34 +76,45 @@ public class BusLocationCollectionInteractor implements CollectBusLocationUseCas
             }
 
             int concurrency = collectionProperties.locationConcurrency();
-            LocalTime now = LocalTime.now(TAGO_ZONE);
-            List<LoadTransitDataPort.RouteReference> activeRoutes = routes.stream()
-                    .filter(route -> RouteOperationWindow.isActive(route, now))
+            Instant now = Instant.now();
+            RouteLocationCollectionPolicy.Selection routeSelection = RouteLocationCollectionPolicy.selectDueRoutes(
+                    routes.stream()
+                            .map(route -> toRouteCollectionCandidate(cityCode, route))
+                            .toList(),
+                    now,
+                    TAGO_ZONE
+            );
+            Set<String> dueRouteIds = new LinkedHashSet<>(routeSelection.dueSourceRouteIds());
+            List<LoadTransitDataPort.RouteReference> dueRoutes = routes.stream()
+                    .filter(route -> dueRouteIds.contains(route.sourceRouteId()))
                     .toList();
-            int skippedRouteCount = routes.size() - activeRoutes.size();
-            if (activeRoutes.isEmpty()) {
+            if (dueRoutes.isEmpty()) {
                 return runSupport.finish(
                         run,
                         CollectionStatus.EMPTY,
                         0,
                         0,
-                        "운행 시간대에 해당하는 노선이 없습니다. skippedInactiveRoutes=" + skippedRouteCount
+                        "수집 주기가 도래한 운행 노선이 없습니다."
+                                + " skippedInactiveRoutes=" + routeSelection.skippedInactiveRoutes()
+                                + ", skippedNotDueRoutes=" + routeSelection.skippedNotDueRoutes()
                 );
             }
             log.info(
-                    "Starting TAGO bus location fetch. cityCode={}, routeCount={}, activeRouteCount={}, skippedInactiveRoutes={}, concurrency={}",
+                    "Starting TAGO bus location fetch. cityCode={}, routeCount={}, dueRouteCount={}, skippedInactiveRoutes={}, skippedNotDueRoutes={}, concurrency={}",
                     cityCode,
                     routes.size(),
-                    activeRoutes.size(),
-                    skippedRouteCount,
+                    dueRoutes.size(),
+                    routeSelection.skippedInactiveRoutes(),
+                    routeSelection.skippedNotDueRoutes(),
                     concurrency
             );
+            attemptRegistry.markAttempted(cityCode, dueRouteIds, now);
             long fetchStartedAt = System.nanoTime();
             List<ConcurrentCollectionSupport.TaskResult<
                     LoadTransitDataPort.RouteReference,
                     List<LoadTagoLocationPort.TagoBusLocation>>> results = ConcurrentCollectionSupport.execute(
                     "bus-location",
-                    activeRoutes,
+                    dueRoutes,
                     concurrency,
                     route -> locationPort.loadBusLocations(cityCode, route.sourceRouteId()),
                     route -> List.of()
@@ -100,11 +139,12 @@ public class BusLocationCollectionInteractor implements CollectBusLocationUseCas
                 }
             }
             log.info(
-                    "Finished TAGO bus location fetch. cityCode={}, routeCount={}, activeRouteCount={}, skippedInactiveRoutes={}, locationRows={}, failures={}, durationMs={}",
+                    "Finished TAGO bus location fetch. cityCode={}, routeCount={}, dueRouteCount={}, skippedInactiveRoutes={}, skippedNotDueRoutes={}, locationRows={}, failures={}, durationMs={}",
                     cityCode,
                     routes.size(),
-                    activeRoutes.size(),
-                    skippedRouteCount,
+                    dueRoutes.size(),
+                    routeSelection.skippedInactiveRoutes(),
+                    routeSelection.skippedNotDueRoutes(),
                     locations.size(),
                     failureCount,
                     elapsedMillis(fetchStartedAt)
@@ -121,7 +161,7 @@ public class BusLocationCollectionInteractor implements CollectBusLocationUseCas
 
             CollectionStatus status = status(rowCount, failureCount);
             return runSupport.finish(run, status, rowCount, failureCount,
-                    resultMessage(rowCount, failureCount, skippedRouteCount, failedRouteIds));
+                    resultMessage(rowCount, failureCount, routeSelection, failedRouteIds));
         } catch (RuntimeException ex) {
             return runSupport.fail(run, ex);
         }
@@ -130,18 +170,41 @@ public class BusLocationCollectionInteractor implements CollectBusLocationUseCas
     private static String resultMessage(
             int rowCount,
             int failureCount,
-            int skippedRouteCount,
+            RouteLocationCollectionPolicy.Selection routeSelection,
             List<String> failedRouteIds
     ) {
         String message = "locations=" + rowCount
                 + ", routeFailures=" + failureCount
-                + ", skippedInactiveRoutes=" + skippedRouteCount;
+                + ", skippedInactiveRoutes=" + routeSelection.skippedInactiveRoutes()
+                + ", skippedNotDueRoutes=" + routeSelection.skippedNotDueRoutes();
         if (failedRouteIds.isEmpty()) {
             return message;
         }
         int limit = Math.min(FAILURE_MESSAGE_LIMIT, failedRouteIds.size());
         String suffix = failedRouteIds.size() > limit ? ", ..." : "";
         return message + ", failedRouteIds=" + failedRouteIds.subList(0, limit) + suffix;
+    }
+
+    private RouteCollectionCandidate toRouteCollectionCandidate(String cityCode, LoadTransitDataPort.RouteReference route) {
+        return new RouteCollectionCandidate(
+                route.sourceRouteId(),
+                route.weekdayIntervalMinutes(),
+                route.saturdayIntervalMinutes(),
+                route.sundayIntervalMinutes(),
+                route.firstVehicleTime(),
+                route.lastVehicleTime(),
+                latest(route.lastLocationCollectedAt(), attemptRegistry.lastAttemptedAt(cityCode, route.sourceRouteId()))
+        );
+    }
+
+    private static Instant latest(Instant left, Instant right) {
+        if (left == null) {
+            return right;
+        }
+        if (right == null) {
+            return left;
+        }
+        return left.isAfter(right) ? left : right;
     }
 
     private static CollectionStatus status(int rowCount, int failureCount) {

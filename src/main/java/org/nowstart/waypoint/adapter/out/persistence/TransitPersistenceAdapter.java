@@ -232,13 +232,32 @@ public class TransitPersistenceAdapter implements SaveTransitDataPort, LoadTrans
     @Override
     @Transactional(readOnly = true)
     public List<RouteReference> loadRoutes(String cityCode) {
-        return busRouteRepository.findAllByCityCodeOrderByRouteNoAsc(cityCode).stream()
+        List<BusRouteEntity> routes = busRouteRepository.findAllByCityCodeOrderByRouteNoAsc(cityCode);
+        List<String> sourceRouteIds = routes.stream()
+                .map(BusRouteEntity::getSourceRouteId)
+                .toList();
+        Map<String, Instant> latestLocationCollectedAtByRoute = sourceRouteIds.isEmpty()
+                ? Map.of()
+                : locationSnapshotRepository.findLatestCollectedAtByCityCodeAndSourceRouteIdIn(
+                                cityCode,
+                                sourceRouteIds
+                        ).stream()
+                        .collect(Collectors.toMap(
+                                BusLocationSnapshotJpaRepository.RouteLatestCollectedAt::getSourceRouteId,
+                                BusLocationSnapshotJpaRepository.RouteLatestCollectedAt::getCollectedAt,
+                                (left, right) -> left.isAfter(right) ? left : right
+                        ));
+        return routes.stream()
                 .map(route -> new RouteReference(
                         route.getCityCode(),
                         route.getSourceRouteId(),
                         route.getRouteNo(),
+                        route.getWeekdayIntervalMinutes(),
+                        route.getSaturdayIntervalMinutes(),
+                        route.getSundayIntervalMinutes(),
                         route.getFirstVehicleTime(),
-                        route.getLastVehicleTime()
+                        route.getLastVehicleTime(),
+                        latestLocationCollectedAtByRoute.get(route.getSourceRouteId())
                 ))
                 .toList();
     }

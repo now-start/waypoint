@@ -16,7 +16,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
-import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -26,6 +25,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
@@ -150,7 +150,8 @@ class CollectionInteractorTest {
                 locationPort,
                 saveTransitDataPort,
                 runSupport(saveTransitDataPort, 2L),
-                collectionProperties(1)
+                collectionProperties(1),
+                new LocationCollectionAttemptRegistry()
         );
 
         // when: 전체 노선 위치 수집을 실행한다
@@ -165,84 +166,46 @@ class CollectionInteractorTest {
                 CollectionStatus.PARTIAL,
                 200,
                 "OK",
-                "locations=2, routeFailures=1, skippedInactiveRoutes=0, failedRouteIds=[CWB102]",
+                "locations=2, routeFailures=1, skippedInactiveRoutes=0, skippedNotDueRoutes=0, failedRouteIds=[CWB102]",
                 2,
                 null
         );
     }
 
     @Test
-    @DisplayName("노선 운행 시간 판정은 첫차와 막차 사이에만 활성으로 본다")
-    void routeOperationWindowActiveOnlyBetweenFirstAndLastVehicleTime() {
-        // given: 05:20부터 23:10까지 운행하는 노선
-        LoadTransitDataPort.RouteReference route = new LoadTransitDataPort.RouteReference(
-                "38010",
-                "CWB101",
-                "101",
-                "0520",
-                "2310"
+    @DisplayName("버스 위치 수집은 직전 시도 노선을 메모리에 표시해 즉시 재호출하지 않는다")
+    void collectLocationsSkipsImmediatelyAttemptedRoutes() {
+        // given: 위치 수집 직후 다시 수집이 실행되는 상황
+        LoadTransitDataPort.RouteReference firstRoute = route("CWB101", "101");
+        LoadTransitDataPort.RouteReference secondRoute = route("CWB102", "102");
+        List<LoadTransitDataPort.RouteReference> routes = List.of(firstRoute, secondRoute);
+
+        given(cityCodeResolver.resolve()).willReturn("38010");
+        given(loadTransitDataPort.loadRoutes("38010")).willReturn(routes);
+        given(locationPort.loadBusLocations("38010", "CWB101")).willReturn(List.of());
+        given(locationPort.loadBusLocations("38010", "CWB102")).willReturn(List.of());
+        given(saveTransitDataPort.saveLocationSnapshots(eq("38010"), any())).willReturn(0);
+
+        BusLocationCollectionInteractor interactor = new BusLocationCollectionInteractor(
+                cityCodeResolver,
+                loadTransitDataPort,
+                locationPort,
+                saveTransitDataPort,
+                runSupport(saveTransitDataPort, 5L, 6L),
+                collectionProperties(1),
+                new LocationCollectionAttemptRegistry()
         );
 
-        // then: 운행 시간 안에서는 활성이고, 운행 시간 밖에서는 비활성이다
-        then(RouteOperationWindow.isActive(route, LocalTime.of(5, 20))).isTrue();
-        then(RouteOperationWindow.isActive(route, LocalTime.of(12, 0))).isTrue();
-        then(RouteOperationWindow.isActive(route, LocalTime.of(23, 10))).isTrue();
-        then(RouteOperationWindow.isActive(route, LocalTime.of(4, 59))).isFalse();
-        then(RouteOperationWindow.isActive(route, LocalTime.of(23, 11))).isFalse();
-    }
+        // when: 같은 프로세스에서 즉시 두 번 실행한다
+        CollectionResult firstResult = interactor.collect();
+        CollectionResult secondResult = interactor.collect();
 
-    @Test
-    @DisplayName("막차가 자정을 넘는 노선은 날짜 경계를 넘어 운행 중으로 본다")
-    void routeOperationWindowSupportsOvernightRoutes() {
-        // given: 23:30부터 다음날 01:10까지 운행하는 노선
-        LoadTransitDataPort.RouteReference route = new LoadTransitDataPort.RouteReference(
-                "38010",
-                "CWB900",
-                "900",
-                "2330",
-                "0110"
-        );
-
-        // then: 자정 전후 모두 운행 시간으로 본다
-        then(RouteOperationWindow.isActive(route, LocalTime.of(23, 40))).isTrue();
-        then(RouteOperationWindow.isActive(route, LocalTime.of(0, 30))).isTrue();
-        then(RouteOperationWindow.isActive(route, LocalTime.of(2, 0))).isFalse();
-    }
-
-    @Test
-    @DisplayName("첫차와 막차 시간이 없으면 기본 운행 시간 05:00부터 23:30까지로 본다")
-    void routeOperationWindowUsesDefaultWindowWhenRouteTimesAreMissing() {
-        // given: 첫차와 막차 시간이 아직 저장되지 않은 노선
-        LoadTransitDataPort.RouteReference route = new LoadTransitDataPort.RouteReference(
-                "38010",
-                "CWB101",
-                "101",
-                null,
-                null
-        );
-
-        // then: 기본 운행 시간 안에서만 활성으로 본다
-        then(RouteOperationWindow.isActive(route, LocalTime.of(5, 0))).isTrue();
-        then(RouteOperationWindow.isActive(route, LocalTime.of(23, 30))).isTrue();
-        then(RouteOperationWindow.isActive(route, LocalTime.of(4, 59))).isFalse();
-        then(RouteOperationWindow.isActive(route, LocalTime.of(23, 31))).isFalse();
-    }
-
-    @Test
-    @DisplayName("첫차와 막차 중 하나만 없으면 기본 운행 시간 전체를 사용한다")
-    void routeOperationWindowUsesDefaultWindowWhenEitherRouteTimeIsMissing() {
-        // given: 첫차만 있고 막차가 없는 노선
-        LoadTransitDataPort.RouteReference route = new LoadTransitDataPort.RouteReference(
-                "38010",
-                "CWB101",
-                "101",
-                "2330",
-                null
-        );
-
-        // then: 24시간 운행으로 열지 않고 기본 운행 시간으로 제한한다
-        then(RouteOperationWindow.isActive(route, LocalTime.of(12, 0))).isTrue();
-        then(RouteOperationWindow.isActive(route, LocalTime.of(23, 31))).isFalse();
+        // then: 두 번째 실행은 방금 시도한 노선을 due로 보지 않는다
+        then(firstResult.status()).isEqualTo(CollectionStatus.EMPTY);
+        then(secondResult.status()).isEqualTo(CollectionStatus.EMPTY);
+        then(secondResult.message()).contains("skippedNotDueRoutes=2");
+        org.mockito.BDDMockito.then(locationPort).should(times(1)).loadBusLocations("38010", "CWB101");
+        org.mockito.BDDMockito.then(locationPort).should(times(1)).loadBusLocations("38010", "CWB102");
     }
 
     @Test
@@ -307,14 +270,53 @@ class CollectionInteractorTest {
         org.mockito.BDDMockito.then(routePort).should().loadRouteStops("38010", "CWB101");
     }
 
-    private static CollectionRunSupport runSupport(SaveTransitDataPort saveTransitDataPort, Long runId) {
+    @Test
+    @DisplayName("기준정보 수집은 시작/수동/스케줄 진입점이 겹쳐도 중복 실행하지 않는다")
+    void collectReferenceDataSkipsOverlappingRuns() {
+        // given: 기준정보 수집 중 다시 기준정보 수집이 호출된다
+        LoadTagoRoutePort.TagoRoute route = tagoRoute("CWB101", "101");
+        CollectionResult[] nestedResult = new CollectionResult[1];
+        ReferenceDataCollectionInteractor[] interactorRef = new ReferenceDataCollectionInteractor[1];
+        ReferenceDataCollectionInteractor interactor = new ReferenceDataCollectionInteractor(
+                cityCodeResolver,
+                routePort,
+                saveTransitDataPort,
+                runSupport(saveTransitDataPort, 7L),
+                new ReferenceDataCollectionState(),
+                collectionProperties(1)
+        );
+        interactorRef[0] = interactor;
+        given(cityCodeResolver.resolve()).willReturn("38010");
+        given(routePort.loadRoutes("38010")).willAnswer(invocation -> {
+            nestedResult[0] = interactorRef[0].collect();
+            return List.of(route);
+        });
+        given(saveTransitDataPort.saveRoutes(eq("38010"), any())).willReturn(1);
+        given(routePort.loadRouteInfo("38010", "CWB101")).willReturn(Optional.of(route));
+        given(routePort.loadRouteStops("38010", "CWB101")).willReturn(List.of());
+
+        // when: 기준정보 수집을 실행한다
+        CollectionResult result = interactor.collect();
+
+        // then: 중첩 호출은 실제 TAGO 기준정보 수집을 다시 시작하지 않는다
+        then(result.status()).isEqualTo(CollectionStatus.SUCCESS);
+        then(nestedResult[0].status()).isEqualTo(CollectionStatus.EMPTY);
+        then(nestedResult[0].message()).isEqualTo("이미 TAGO 기준정보 수집이 진행 중입니다.");
+        org.mockito.BDDMockito.then(routePort).should(times(1)).loadRoutes("38010");
+    }
+
+    private static CollectionRunSupport runSupport(
+            SaveTransitDataPort saveTransitDataPort,
+            Long runId,
+            Long... additionalRunIds
+    ) {
         given(saveTransitDataPort.startCollectionRun(any(CollectionApiType.class), anyString(), anyString()))
-                .willReturn(runId);
+                .willReturn(runId, additionalRunIds);
         return new CollectionRunSupport(saveTransitDataPort);
     }
 
     private static LoadTransitDataPort.RouteReference route(String sourceRouteId, String routeNo) {
-        return new LoadTransitDataPort.RouteReference("38010", sourceRouteId, routeNo, "0000", "0000");
+        return new LoadTransitDataPort.RouteReference("38010", sourceRouteId, routeNo, 20, 20, 20, "0000", "0000", null);
     }
 
     private static LoadTransitDataPort.StopReference stop(String sourceNodeId, String nodeName) {

@@ -46,7 +46,9 @@ waypoint:
     connect-timeout: 5s
     read-timeout: 20s
     collection:
-      location-fixed-delay: 30m
+      reference-data-fixed-delay: 24h
+      reference-data-initial-delay: 24h
+      location-fixed-delay: 1m
       location-initial-delay: 0s
       reference-data-concurrency: 8
       location-concurrency: 8

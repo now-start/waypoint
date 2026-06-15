@@ -11,10 +11,12 @@ import org.nowstart.waypoint.domain.type.CollectionApiType;
 import org.nowstart.waypoint.domain.type.CollectionStatus;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 
@@ -32,9 +34,31 @@ public class ReferenceDataCollectionInteractor implements CollectReferenceDataUs
     private final CollectionRunSupport runSupport;
     private final ReferenceDataCollectionState collectionState;
     private final TagoCollectionProperties collectionProperties;
+    private final AtomicBoolean collectionRunning = new AtomicBoolean(false);
 
     @Override
     public CollectionResult collect() {
+        Instant startedAt = Instant.now();
+        if (!collectionRunning.compareAndSet(false, true)) {
+            String message = "이미 TAGO 기준정보 수집이 진행 중입니다.";
+            return new CollectionResult(
+                    CollectionApiType.REFERENCE_DATA,
+                    CollectionStatus.EMPTY,
+                    0,
+                    0,
+                    message,
+                    startedAt,
+                    Instant.now()
+            );
+        }
+        try {
+            return collectLocked();
+        } finally {
+            collectionRunning.set(false);
+        }
+    }
+
+    private CollectionResult collectLocked() {
         CollectionRunSupport.CollectionRun run = runSupport.start(
                 CollectionApiType.REFERENCE_DATA,
                 "changwon-reference-data",

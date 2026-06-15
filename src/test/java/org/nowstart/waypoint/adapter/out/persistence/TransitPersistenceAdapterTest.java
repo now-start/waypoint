@@ -3,6 +3,7 @@ package org.nowstart.waypoint.adapter.out.persistence;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.nowstart.waypoint.adapter.out.persistence.entity.BusRouteEntity;
 import org.nowstart.waypoint.adapter.out.persistence.entity.BusStopEntity;
 import org.nowstart.waypoint.adapter.out.persistence.repository.BusArrivalSnapshotJpaRepository;
 import org.nowstart.waypoint.adapter.out.persistence.repository.BusLocationSnapshotJpaRepository;
@@ -13,6 +14,7 @@ import org.nowstart.waypoint.adapter.out.persistence.repository.RouteStopJpaRepo
 import org.nowstart.waypoint.application.port.out.LoadTagoArrivalPort;
 import org.nowstart.waypoint.application.port.out.LoadTagoLocationPort;
 import org.nowstart.waypoint.application.port.out.LoadTagoRoutePort;
+import org.nowstart.waypoint.application.port.out.LoadTransitDataPort;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -134,6 +136,53 @@ class TransitPersistenceAdapterTest {
         // then: 호출별 저장 대신 한 번의 JPA 일괄 저장을 사용한다
         assertThat(savedCount).isEqualTo(2);
         then(locationSnapshotRepository).should().saveAll(any());
+    }
+
+    @Test
+    @DisplayName("노선 조회는 배차간격과 마지막 위치 수집 성공 시각을 포함한다")
+    void loadRoutesIncludesHeadwaysAndLastLocationCollectedAt() {
+        // given: 배차간격이 저장된 노선과 해당 노선의 최신 위치 스냅샷이 있다
+        BusRouteEntity route = mock(BusRouteEntity.class);
+        BusLocationSnapshotJpaRepository.RouteLatestCollectedAt latestCollectedAt =
+                mock(BusLocationSnapshotJpaRepository.RouteLatestCollectedAt.class);
+        Instant lastLocationCollectedAt = Instant.parse("2026-06-13T00:00:00Z");
+        given(route.getCityCode()).willReturn("38010");
+        given(route.getSourceRouteId()).willReturn("CWB101");
+        given(route.getRouteNo()).willReturn("101");
+        given(route.getWeekdayIntervalMinutes()).willReturn(20);
+        given(route.getSaturdayIntervalMinutes()).willReturn(30);
+        given(route.getSundayIntervalMinutes()).willReturn(40);
+        given(route.getFirstVehicleTime()).willReturn("0500");
+        given(route.getLastVehicleTime()).willReturn("2330");
+        given(latestCollectedAt.getSourceRouteId()).willReturn("CWB101");
+        given(latestCollectedAt.getCollectedAt()).willReturn(lastLocationCollectedAt);
+        given(busRouteRepository.findAllByCityCodeOrderByRouteNoAsc("38010")).willReturn(List.of(route));
+        given(locationSnapshotRepository.findLatestCollectedAtByCityCodeAndSourceRouteIdIn(eq("38010"), anySourceRouteIds()))
+                .willReturn(List.of(latestCollectedAt));
+        TransitPersistenceAdapter adapter = new TransitPersistenceAdapter(
+                busRouteRepository,
+                busStopRepository,
+                routeStopRepository,
+                locationSnapshotRepository,
+                arrivalSnapshotRepository,
+                collectionRunRepository
+        );
+
+        // when: 노선 조회 read model을 만든다
+        List<LoadTransitDataPort.RouteReference> routes = adapter.loadRoutes("38010");
+
+        // then: due 판단에 필요한 필드를 포함한다
+        assertThat(routes).containsExactly(new LoadTransitDataPort.RouteReference(
+                "38010",
+                "CWB101",
+                "101",
+                20,
+                30,
+                40,
+                "0500",
+                "2330",
+                lastLocationCollectedAt
+        ));
     }
 
     @Test

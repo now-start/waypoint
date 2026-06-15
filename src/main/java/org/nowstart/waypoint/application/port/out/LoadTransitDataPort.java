@@ -25,8 +25,12 @@ public interface LoadTransitDataPort {
             String cityCode,
             String sourceRouteId,
             String routeNo,
+            Integer weekdayIntervalMinutes,
+            Integer saturdayIntervalMinutes,
+            Integer sundayIntervalMinutes,
             String firstVehicleTime,
-            String lastVehicleTime
+            String lastVehicleTime,
+            Instant lastLocationCollectedAt
     ) {
     }
 
