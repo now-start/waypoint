@@ -28,7 +28,7 @@ public class TagoCollectionScheduler {
             if (startupSkipLogged.compareAndSet(false, true)) {
                 log.info("Skipping scheduled TAGO bus location collection until startup route reference data is ready.");
             } else {
-                log.debug("Skipping scheduled TAGO bus location collection until startup route reference data is ready.");
+                log.info("Skipping scheduled TAGO bus location collection until startup route reference data is ready.");
             }
             return;
         }

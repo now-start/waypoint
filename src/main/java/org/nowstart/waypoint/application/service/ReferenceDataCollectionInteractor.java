@@ -162,10 +162,17 @@ public class ReferenceDataCollectionInteractor implements CollectReferenceDataUs
             Function<LoadTagoRoutePort.TagoRoute, T> task,
             Function<LoadTagoRoutePort.TagoRoute, T> fallback
     ) {
-        int concurrency = Math.min(collectionProperties.referenceDataConcurrency(), routes.size());
+        int concurrency = collectionProperties.referenceDataConcurrency();
         AtomicInteger failureLogCount = new AtomicInteger();
         List<ConcurrentCollectionSupport.TaskResult<LoadTagoRoutePort.TagoRoute, T>> taskResults =
-                ConcurrentCollectionSupport.execute(routes, concurrency, task, fallback);
+                ConcurrentCollectionSupport.execute(
+                        taskName,
+                        routes,
+                        concurrency,
+                        task,
+                        fallback,
+                        LoadTagoRoutePort.TagoRoute::sourceRouteId
+                );
         List<RouteTaskResult<T>> results = new ArrayList<>(taskResults.size());
         for (ConcurrentCollectionSupport.TaskResult<LoadTagoRoutePort.TagoRoute, T> result : taskResults) {
             if (result.failed()) {

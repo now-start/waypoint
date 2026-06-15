@@ -12,7 +12,7 @@ spring:
     properties:
       hibernate:
         jdbc:
-          batch_size: 100
+          batch_size: 200
         order_inserts: true
         order_updates: true
   jmx:
@@ -48,9 +48,9 @@ waypoint:
     collection:
       location-fixed-delay: 10s
       location-initial-delay: 0s
-      reference-data-concurrency: 4
-      location-concurrency: 4
-      arrival-concurrency: 4
+      reference-data-concurrency: 8
+      location-concurrency: 8
+      arrival-concurrency: 8
   ollama:
     base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
     model: ${OLLAMA_MODEL:llama3.1}

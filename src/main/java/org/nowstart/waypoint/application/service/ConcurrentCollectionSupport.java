@@ -1,38 +1,55 @@
 package org.nowstart.waypoint.application.service;
 
+import lombok.extern.slf4j.Slf4j;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
+@Slf4j
 final class ConcurrentCollectionSupport {
 
     private ConcurrentCollectionSupport() {
     }
 
     static <S, T> List<TaskResult<S, T>> execute(
+            String taskName,
             List<S> sources,
             int concurrency,
             Function<S, T> task,
-            Function<S, T> fallback
+            Function<S, T> fallback,
+            Function<S, String> sourceLabel
     ) {
         if (sources.isEmpty()) {
             return List.of();
         }
 
         int effectiveConcurrency = Math.min(Math.max(1, concurrency), sources.size());
+        long startedAt = System.nanoTime();
+        log.info(
+                "Starting parallel collection tasks. taskName={}, totalTasks={}, requestedConcurrency={}, effectiveConcurrency={}",
+                taskName,
+                sources.size(),
+                concurrency,
+                effectiveConcurrency
+        );
+
         if (effectiveConcurrency == 1) {
-            return sources.stream()
-                    .map(source -> executeOne(source, task, fallback))
+            List<TaskResult<S, T>> results = sources.stream()
+                    .map(source -> executeOne(taskName, source, task, fallback, sourceLabel))
                     .toList();
+            logFinished(taskName, results, startedAt);
+            return results;
         }
 
         try (ExecutorService executor = Executors.newFixedThreadPool(effectiveConcurrency)) {
             List<CompletableFuture<TaskResult<S, T>>> futures = sources.stream()
                     .map(source -> CompletableFuture.supplyAsync(
-                            () -> executeOne(source, task, fallback),
+                            () -> executeOne(taskName, source, task, fallback, sourceLabel),
                             executor
                     ))
                     .toList();
@@ -40,20 +57,71 @@ final class ConcurrentCollectionSupport {
             for (CompletableFuture<TaskResult<S, T>> future : futures) {
                 results.add(future.join());
             }
+            logFinished(taskName, results, startedAt);
             return results;
         }
     }
 
     private static <S, T> TaskResult<S, T> executeOne(
+            String taskName,
             S source,
             Function<S, T> task,
-            Function<S, T> fallback
+            Function<S, T> fallback,
+            Function<S, String> sourceLabel
     ) {
+        String label = sourceLabel.apply(source);
+        long startedAt = System.nanoTime();
+        log.info("Starting collection task. taskName={}, source={}, thread={}", taskName, label, Thread.currentThread().getName());
         try {
-            return new TaskResult<>(source, task.apply(source), null);
+            T value = task.apply(source);
+            log.info(
+                    "Finished collection task. taskName={}, source={}, thread={}, durationMs={}",
+                    taskName,
+                    label,
+                    Thread.currentThread().getName(),
+                    elapsedMillis(startedAt)
+            );
+            return new TaskResult<>(source, value, null);
         } catch (RuntimeException ex) {
+            log.info(
+                    "Failed collection task. taskName={}, source={}, thread={}, durationMs={}, errorType={}, message={}",
+                    taskName,
+                    label,
+                    Thread.currentThread().getName(),
+                    elapsedMillis(startedAt),
+                    ex.getClass().getSimpleName(),
+                    sanitizedMessage(ex)
+            );
             return new TaskResult<>(source, fallback.apply(source), ex);
         }
+    }
+
+    private static <S, T> void logFinished(String taskName, List<TaskResult<S, T>> results, long startedAt) {
+        long failureCount = results.stream()
+                .filter(TaskResult::failed)
+                .count();
+        log.info(
+                "Finished parallel collection tasks. taskName={}, totalTasks={}, failures={}, durationMs={}",
+                taskName,
+                results.size(),
+                failureCount,
+                elapsedMillis(startedAt)
+        );
+    }
+
+    private static long elapsedMillis(long startedAt) {
+        return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
+    }
+
+    private static String sanitizedMessage(RuntimeException ex) {
+        String message = ex.getMessage();
+        if (message == null || message.isBlank()) {
+            return "";
+        }
+        String sanitized = message
+                .replaceAll("(?i)(serviceKey=)[^&\\s]+", "$1***")
+                .replaceAll("[\\r\\n\\t]+", " ");
+        return sanitized.length() > 300 ? sanitized.substring(0, 300) : sanitized;
     }
 
     record TaskResult<S, T>(

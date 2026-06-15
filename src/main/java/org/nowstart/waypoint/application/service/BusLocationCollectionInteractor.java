@@ -1,6 +1,7 @@
 package org.nowstart.waypoint.application.service;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.nowstart.waypoint.application.port.in.CollectBusLocationUseCase;
 import org.nowstart.waypoint.application.port.in.CollectionResult;
 import org.nowstart.waypoint.application.port.out.LoadTagoLocationPort;
@@ -13,9 +14,11 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class BusLocationCollectionInteractor implements CollectBusLocationUseCase {
 
     private static final int FAILURE_MESSAGE_LIMIT = 10;
@@ -41,13 +44,23 @@ public class BusLocationCollectionInteractor implements CollectBusLocationUseCas
                 return runSupport.finish(run, CollectionStatus.EMPTY, 0, 0, "수집된 노선 기준 데이터가 없습니다.");
             }
 
+            int concurrency = collectionProperties.locationConcurrency();
+            log.info(
+                    "Starting TAGO bus location fetch. cityCode={}, routeCount={}, concurrency={}",
+                    cityCode,
+                    routes.size(),
+                    concurrency
+            );
+            long fetchStartedAt = System.nanoTime();
             List<ConcurrentCollectionSupport.TaskResult<
                     LoadTransitDataPort.RouteReference,
                     List<LoadTagoLocationPort.TagoBusLocation>>> results = ConcurrentCollectionSupport.execute(
+                    "bus-location",
                     routes,
-                    collectionProperties.locationConcurrency(),
+                    concurrency,
                     route -> locationPort.loadBusLocations(cityCode, route.sourceRouteId()),
-                    route -> List.of()
+                    route -> List.of(),
+                    LoadTransitDataPort.RouteReference::sourceRouteId
             );
 
             List<LoadTagoLocationPort.TagoBusLocation> locations = new ArrayList<>();
@@ -59,11 +72,32 @@ public class BusLocationCollectionInteractor implements CollectBusLocationUseCas
                 if (result.failed()) {
                     failureCount++;
                     failedRouteIds.add(result.source().sourceRouteId());
+                    if (failureCount <= FAILURE_MESSAGE_LIMIT) {
+                        logRouteFailure(result);
+                    } else if (failureCount == FAILURE_MESSAGE_LIMIT + 1) {
+                        log.warn("Suppressing further TAGO bus location fetch failure logs.");
+                    }
                 } else {
                     locations.addAll(result.value());
                 }
             }
+            log.info(
+                    "Finished TAGO bus location fetch. cityCode={}, routeCount={}, locationRows={}, failures={}, durationMs={}",
+                    cityCode,
+                    routes.size(),
+                    locations.size(),
+                    failureCount,
+                    elapsedMillis(fetchStartedAt)
+            );
+
+            long saveStartedAt = System.nanoTime();
             int rowCount = saveTransitDataPort.saveLocationSnapshots(cityCode, locations);
+            log.info(
+                    "Saved TAGO bus location snapshots. cityCode={}, rows={}, durationMs={}",
+                    cityCode,
+                    rowCount,
+                    elapsedMillis(saveStartedAt)
+            );
 
             CollectionStatus status = status(rowCount, failureCount);
             return runSupport.finish(run, status, rowCount, failureCount,
@@ -88,5 +122,33 @@ public class BusLocationCollectionInteractor implements CollectBusLocationUseCas
             return CollectionStatus.EMPTY;
         }
         return failureCount > 0 ? CollectionStatus.PARTIAL : CollectionStatus.SUCCESS;
+    }
+
+    private static void logRouteFailure(
+            ConcurrentCollectionSupport.TaskResult<
+                    LoadTransitDataPort.RouteReference,
+                    List<LoadTagoLocationPort.TagoBusLocation>> result
+    ) {
+        log.warn(
+                "TAGO bus location fetch failed. sourceRouteId={}, errorType={}, message={}",
+                result.source().sourceRouteId(),
+                result.failure().getClass().getSimpleName(),
+                sanitizedMessage(result.failure())
+        );
+    }
+
+    private static long elapsedMillis(long startedAt) {
+        return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
+    }
+
+    private static String sanitizedMessage(RuntimeException ex) {
+        String message = ex.getMessage();
+        if (message == null || message.isBlank()) {
+            return "";
+        }
+        String sanitized = message
+                .replaceAll("(?i)(serviceKey=)[^&\\s]+", "$1***")
+                .replaceAll("[\\r\\n\\t]+", " ");
+        return sanitized.length() > 300 ? sanitized.substring(0, 300) : sanitized;
     }
 }
