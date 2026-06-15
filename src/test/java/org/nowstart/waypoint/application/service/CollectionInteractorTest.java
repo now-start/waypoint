@@ -6,8 +6,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.nowstart.waypoint.application.port.in.CollectionResult;
 import org.nowstart.waypoint.application.port.out.LoadTagoArrivalPort;
 import org.nowstart.waypoint.application.port.out.LoadTagoLocationPort;
+import org.nowstart.waypoint.application.port.out.LoadTagoRoutePort;
 import org.nowstart.waypoint.application.port.out.LoadTransitDataPort;
 import org.nowstart.waypoint.application.port.out.SaveTransitDataPort;
+import org.nowstart.waypoint.config.TagoCollectionProperties;
 import org.nowstart.waypoint.domain.type.CollectionApiType;
 import org.nowstart.waypoint.domain.type.CollectionStatus;
 import org.mockito.Mock;
@@ -15,10 +17,13 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.BDDAssertions.then;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -38,6 +43,9 @@ class CollectionInteractorTest {
     private LoadTagoLocationPort locationPort;
 
     @Mock
+    private LoadTagoRoutePort routePort;
+
+    @Mock
     private SaveTransitDataPort saveTransitDataPort;
 
     @Test
@@ -52,7 +60,8 @@ class CollectionInteractorTest {
                 loadTransitDataPort,
                 arrivalPort,
                 saveTransitDataPort,
-                runSupport(saveTransitDataPort, 1L)
+                runSupport(saveTransitDataPort, 1L),
+                collectionProperties(1)
         );
 
         // when: 전체 정류장 도착정보 수집을 실행한다
@@ -85,7 +94,7 @@ class CollectionInteractorTest {
         given(cityCodeResolver.resolve()).willReturn("38010");
         given(loadTransitDataPort.loadStops("38010")).willReturn(List.of(successStop, failedStop));
         given(arrivalPort.loadArrivals("38010", "CWS001")).willReturn(arrivals);
-        given(saveTransitDataPort.saveArrivalSnapshots("38010", "CWS001", arrivals)).willReturn(1);
+        given(saveTransitDataPort.saveArrivalSnapshots("38010", arrivals)).willReturn(1);
         given(arrivalPort.loadArrivals("38010", "CWS002"))
                 .willThrow(new IllegalStateException("TAGO 도착 수집 실패"));
 
@@ -94,7 +103,8 @@ class CollectionInteractorTest {
                 loadTransitDataPort,
                 arrivalPort,
                 saveTransitDataPort,
-                runSupport(saveTransitDataPort, 2L)
+                runSupport(saveTransitDataPort, 2L),
+                collectionProperties(1)
         );
 
         // when: 전체 정류장 도착정보 수집을 실행한다
@@ -129,7 +139,7 @@ class CollectionInteractorTest {
         given(cityCodeResolver.resolve()).willReturn("38010");
         given(loadTransitDataPort.loadRoutes("38010")).willReturn(List.of(successRoute, failedRoute));
         given(locationPort.loadBusLocations("38010", "CWB101")).willReturn(locations);
-        given(saveTransitDataPort.saveLocationSnapshots("38010", "CWB101", locations)).willReturn(2);
+        given(saveTransitDataPort.saveLocationSnapshots("38010", locations)).willReturn(2);
         given(locationPort.loadBusLocations("38010", "CWB102"))
                 .willThrow(new IllegalStateException("TAGO 위치 수집 실패"));
 
@@ -138,7 +148,8 @@ class CollectionInteractorTest {
                 loadTransitDataPort,
                 locationPort,
                 saveTransitDataPort,
-                runSupport(saveTransitDataPort, 2L)
+                runSupport(saveTransitDataPort, 2L),
+                collectionProperties(1)
         );
 
         // when: 전체 노선 위치 수집을 실행한다
@@ -153,10 +164,72 @@ class CollectionInteractorTest {
                 CollectionStatus.PARTIAL,
                 200,
                 "OK",
-                "locations=2, routeFailures=1",
+                "locations=2, routeFailures=1, failedRouteIds=[CWB102]",
                 2,
                 null
         );
+    }
+
+    @Test
+    @DisplayName("기준정보 수집은 노선 저장 직후 위치 수집 대기를 해제한다")
+    void collectReferenceDataMarksRoutesReadyAfterSavingRoutes() {
+        // given: 노선 기준정보 저장까지 성공하는 기준정보 수집기
+        LoadTagoRoutePort.TagoRoute route = tagoRoute("CWB101", "101");
+        ReferenceDataCollectionState collectionState = new ReferenceDataCollectionState();
+        given(cityCodeResolver.resolve()).willReturn("38010");
+        given(routePort.loadRoutes("38010")).willReturn(List.of(route));
+        given(routePort.loadRouteInfo("38010", "CWB101")).willAnswer(invocation -> {
+            assertThat(collectionState.shouldDeferLocationCollection()).isFalse();
+            return Optional.of(route);
+        });
+        given(saveTransitDataPort.saveRoutes("38010", List.of(route))).willReturn(1);
+        given(routePort.loadRouteStops("38010", "CWB101")).willReturn(List.of());
+
+        ReferenceDataCollectionInteractor interactor = new ReferenceDataCollectionInteractor(
+                cityCodeResolver,
+                routePort,
+                saveTransitDataPort,
+                runSupport(saveTransitDataPort, 3L),
+                collectionState,
+                collectionProperties(1)
+        );
+
+        // when: 기준정보 수집을 실행한다
+        CollectionResult result = interactor.collect();
+
+        // then: 정류장 수집이 끝나기 전이라도 노선 저장 뒤에는 위치 수집 대기를 해제한다
+        then(result.status()).isEqualTo(CollectionStatus.SUCCESS);
+        then(collectionState.shouldDeferLocationCollection()).isFalse();
+    }
+
+    @Test
+    @DisplayName("기준정보 수집은 중복 노선을 TAGO 상세 호출 전에 제거한다")
+    void collectReferenceDataDeduplicatesRoutesBeforeTagoDetailCalls() {
+        // given: TAGO 노선 목록에 같은 원본 노선 ID가 중복으로 들어온다
+        LoadTagoRoutePort.TagoRoute originalRoute = tagoRoute("CWB101", "101");
+        LoadTagoRoutePort.TagoRoute latestRoute = tagoRoute("CWB101", "101-1");
+        given(cityCodeResolver.resolve()).willReturn("38010");
+        given(routePort.loadRoutes("38010")).willReturn(List.of(originalRoute, latestRoute));
+        given(saveTransitDataPort.saveRoutes(eq("38010"), any())).willReturn(1);
+        given(routePort.loadRouteInfo("38010", "CWB101")).willReturn(Optional.of(latestRoute));
+        given(routePort.loadRouteStops("38010", "CWB101")).willReturn(List.of());
+
+        ReferenceDataCollectionInteractor interactor = new ReferenceDataCollectionInteractor(
+                cityCodeResolver,
+                routePort,
+                saveTransitDataPort,
+                runSupport(saveTransitDataPort, 4L),
+                new ReferenceDataCollectionState(),
+                collectionProperties(1)
+        );
+
+        // when: 기준정보 수집을 실행한다
+        CollectionResult result = interactor.collect();
+
+        // then: 중복 원본 노선 ID에 대해 상세 API는 한 번만 호출한다
+        then(result.status()).isEqualTo(CollectionStatus.SUCCESS);
+        org.mockito.BDDMockito.then(routePort).should().loadRouteInfo("38010", "CWB101");
+        org.mockito.BDDMockito.then(routePort).should().loadRouteStops("38010", "CWB101");
     }
 
     private static CollectionRunSupport runSupport(SaveTransitDataPort saveTransitDataPort, Long runId) {
@@ -166,11 +239,34 @@ class CollectionInteractorTest {
     }
 
     private static LoadTransitDataPort.RouteReference route(String sourceRouteId, String routeNo) {
-        return new LoadTransitDataPort.RouteReference(1L, "38010", sourceRouteId, routeNo);
+        return new LoadTransitDataPort.RouteReference("38010", sourceRouteId, routeNo);
     }
 
     private static LoadTransitDataPort.StopReference stop(String sourceNodeId, String nodeName) {
-        return new LoadTransitDataPort.StopReference(1L, "38010", sourceNodeId, nodeName, null);
+        return new LoadTransitDataPort.StopReference("38010", sourceNodeId, nodeName, null);
+    }
+
+    private static LoadTagoRoutePort.TagoRoute tagoRoute(String sourceRouteId, String routeNo) {
+        return new LoadTagoRoutePort.TagoRoute(
+                sourceRouteId,
+                routeNo,
+                "간선",
+                "기점",
+                "종점",
+                10,
+                15,
+                20,
+                "0500",
+                "2300"
+        );
+    }
+
+    private static TagoCollectionProperties collectionProperties(int referenceDataConcurrency) {
+        return new TagoCollectionProperties(
+                referenceDataConcurrency,
+                referenceDataConcurrency,
+                referenceDataConcurrency
+        );
     }
 
     private static LoadTagoLocationPort.TagoBusLocation location(String sourceRouteId, String vehicleNo) {

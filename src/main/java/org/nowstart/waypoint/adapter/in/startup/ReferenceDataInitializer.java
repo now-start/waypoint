@@ -1,32 +1,25 @@
 package org.nowstart.waypoint.adapter.in.startup;
 
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.nowstart.waypoint.application.port.in.CollectionResult;
 import org.nowstart.waypoint.application.port.in.CollectReferenceDataUseCase;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.nowstart.waypoint.application.service.ReferenceDataCollectionState;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 
 @Component
+@RequiredArgsConstructor
+@Slf4j
 public class ReferenceDataInitializer implements ApplicationRunner {
 
-    private static final Logger log = LoggerFactory.getLogger(ReferenceDataInitializer.class);
-
     private final CollectReferenceDataUseCase collectReferenceDataUseCase;
-    private final ReferenceDataStartupState startupState;
-
-    public ReferenceDataInitializer(
-            CollectReferenceDataUseCase collectReferenceDataUseCase,
-            ReferenceDataStartupState startupState
-    ) {
-        this.collectReferenceDataUseCase = collectReferenceDataUseCase;
-        this.startupState = startupState;
-    }
+    private final ReferenceDataCollectionState collectionState;
 
     @Override
     public void run(ApplicationArguments args) {
-        startupState.markStarted();
+        collectionState.markStartupStarted();
         log.info("Starting startup TAGO reference data collection.");
         try {
             CollectionResult result = collectReferenceDataUseCase.collect();
@@ -38,7 +31,7 @@ public class ReferenceDataInitializer implements ApplicationRunner {
                     result.message()
             );
         } finally {
-            startupState.markFinished();
+            collectionState.markStartupFinished();
         }
     }
 }

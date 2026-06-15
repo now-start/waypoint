@@ -7,7 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import java.time.Instant;
 import java.util.Optional;
 
-public interface BusLocationSnapshotJpaRepository extends JpaRepository<BusLocationSnapshotEntity, Long> {
+public interface BusLocationSnapshotJpaRepository extends JpaRepository<BusLocationSnapshotEntity, String> {
 
     @Query("select max(snapshot.collectedAt) from BusLocationSnapshotEntity snapshot")
     Optional<Instant> findLatestCollectedAt();

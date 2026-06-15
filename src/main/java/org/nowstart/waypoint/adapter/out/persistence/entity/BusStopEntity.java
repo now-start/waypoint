@@ -2,29 +2,33 @@ package org.nowstart.waypoint.adapter.out.persistence.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
+import jakarta.persistence.IdClass;
+import jakarta.persistence.PostLoad;
+import jakarta.persistence.PostPersist;
 import jakarta.persistence.Table;
-import jakarta.persistence.UniqueConstraint;
+import jakarta.persistence.Transient;
+import lombok.AccessLevel;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 import org.nowstart.waypoint.application.port.out.LoadTagoRoutePort;
+import org.springframework.data.domain.Persistable;
 
+import java.io.Serializable;
 import java.time.Instant;
 
 @Entity
-@Table(
-        name = "bus_stops",
-        uniqueConstraints = @UniqueConstraint(name = "uk_bus_stop_source", columnNames = {"city_code", "source_node_id"})
-)
-public class BusStopEntity {
+@IdClass(BusStopEntity.Id.class)
+@Table(name = "bus_stops")
+@Getter
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
+public class BusStopEntity implements Persistable<BusStopEntity.Id> {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
-
+    @jakarta.persistence.Id
     @Column(name = "city_code", nullable = false, length = 20)
     private String cityCode;
 
+    @jakarta.persistence.Id
     @Column(name = "source_node_id", nullable = false, length = 80)
     private String sourceNodeId;
 
@@ -49,8 +53,8 @@ public class BusStopEntity {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
-    protected BusStopEntity() {
-    }
+    @Transient
+    private boolean newEntity = true;
 
     private BusStopEntity(String cityCode, String sourceNodeId) {
         this.cityCode = cityCode;
@@ -79,23 +83,33 @@ public class BusStopEntity {
         this.updatedAt = Instant.now();
     }
 
-    public Long getId() {
-        return id;
+    @Override
+    public Id getId() {
+        return new Id(cityCode, sourceNodeId);
     }
 
-    public String getCityCode() {
-        return cityCode;
+    @Override
+    public boolean isNew() {
+        return newEntity;
     }
 
-    public String getSourceNodeId() {
-        return sourceNodeId;
+    @PostLoad
+    @PostPersist
+    void markNotNew() {
+        this.newEntity = false;
     }
 
-    public String getNodeName() {
-        return nodeName;
-    }
+    @Getter
+    @NoArgsConstructor
+    @EqualsAndHashCode
+    public static class Id implements Serializable {
 
-    public Instant getLastArrivalCollectedAt() {
-        return lastArrivalCollectedAt;
+        private String cityCode;
+        private String sourceNodeId;
+
+        public Id(String cityCode, String sourceNodeId) {
+            this.cityCode = cityCode;
+            this.sourceNodeId = sourceNodeId;
+        }
     }
 }

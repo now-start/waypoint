@@ -3,9 +3,14 @@ package org.nowstart.waypoint.adapter.out.persistence.repository;
 import org.nowstart.waypoint.adapter.out.persistence.entity.RouteStopEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 
-import java.util.Optional;
+import java.util.Collection;
+import java.util.List;
 
-public interface RouteStopJpaRepository extends JpaRepository<RouteStopEntity, Long> {
+public interface RouteStopJpaRepository extends JpaRepository<RouteStopEntity, RouteStopEntity.Id> {
 
-    Optional<RouteStopEntity> findByBusRouteIdAndNodeOrder(Long busRouteId, int nodeOrder);
+    List<RouteStopEntity> findAllByCityCodeAndSourceRouteIdAndNodeOrderIn(
+            String cityCode,
+            String sourceRouteId,
+            Collection<Integer> nodeOrders
+    );
 }

@@ -2,64 +2,43 @@ package org.nowstart.waypoint.adapter.out.persistence.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.ForeignKey;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PostLoad;
+import jakarta.persistence.PostPersist;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
 import org.nowstart.waypoint.application.port.out.LoadTagoArrivalPort;
+import org.springframework.data.domain.Persistable;
 
 import java.time.Instant;
+import java.util.UUID;
 
 @Entity
 @Table(
         name = "bus_arrival_snapshots",
         indexes = {
-                @Index(name = "ix_arrival_stop_collected", columnList = "bus_stop_id,collected_at"),
-                @Index(name = "ix_arrival_route_collected", columnList = "bus_route_id,collected_at")
+                @Index(name = "ix_arrival_stop_collected", columnList = "city_code,source_node_id,collected_at"),
+                @Index(name = "ix_arrival_route_collected", columnList = "city_code,source_route_id,collected_at")
         }
 )
-public class BusArrivalSnapshotEntity {
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
+public class BusArrivalSnapshotEntity implements Persistable<String> {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    @Column(name = "id", nullable = false, length = 36)
+    private String id;
 
-    @Column(name = "bus_stop_id")
-    private Long busStopId;
-
-    // 기준 정류소 매칭 실패 시에도 원본 도착 스냅샷은 보존한다.
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(
-            name = "bus_stop_id",
-            insertable = false,
-            updatable = false,
-            foreignKey = @ForeignKey(name = "fk_arrival_snapshot_stop")
-    )
-    private BusStopEntity busStop;
+    @Column(name = "city_code", nullable = false, length = 20)
+    private String cityCode;
 
     @Column(name = "source_node_id", nullable = false, length = 80)
     private String sourceNodeId;
 
     @Column(name = "node_name")
     private String nodeName;
-
-    @Column(name = "bus_route_id")
-    private Long busRouteId;
-
-    // 기준 노선 매칭 실패 시에도 원본 도착 스냅샷은 보존한다.
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(
-            name = "bus_route_id",
-            insertable = false,
-            updatable = false,
-            foreignKey = @ForeignKey(name = "fk_arrival_snapshot_route")
-    )
-    private BusRouteEntity busRoute;
 
     @Column(name = "source_route_id", length = 80)
     private String sourceRouteId;
@@ -88,18 +67,14 @@ public class BusArrivalSnapshotEntity {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
-    protected BusArrivalSnapshotEntity() {
-    }
+    @Transient
+    private boolean newEntity = true;
 
-    public BusArrivalSnapshotEntity(
-            Long busStopId,
-            Long busRouteId,
-            LoadTagoArrivalPort.TagoBusArrival arrival
-    ) {
-        this.busStopId = busStopId;
+    public BusArrivalSnapshotEntity(String cityCode, LoadTagoArrivalPort.TagoBusArrival arrival) {
+        this.id = UUID.randomUUID().toString();
+        this.cityCode = cityCode;
         this.sourceNodeId = arrival.sourceNodeId();
         this.nodeName = arrival.nodeName();
-        this.busRouteId = busRouteId;
         this.sourceRouteId = arrival.sourceRouteId();
         this.routeNo = arrival.routeNo();
         this.routeType = arrival.routeType();
@@ -109,5 +84,21 @@ public class BusArrivalSnapshotEntity {
         this.vehicleType = arrival.vehicleType();
         this.collectedAt = arrival.collectedAt();
         this.createdAt = Instant.now();
+    }
+
+    @Override
+    public String getId() {
+        return id;
+    }
+
+    @Override
+    public boolean isNew() {
+        return newEntity;
+    }
+
+    @PostLoad
+    @PostPersist
+    void markNotNew() {
+        this.newEntity = false;
     }
 }

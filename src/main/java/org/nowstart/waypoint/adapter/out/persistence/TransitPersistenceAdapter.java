@@ -1,5 +1,6 @@
 package org.nowstart.waypoint.adapter.out.persistence;
 
+import lombok.RequiredArgsConstructor;
 import org.nowstart.waypoint.adapter.out.persistence.entity.BusArrivalSnapshotEntity;
 import org.nowstart.waypoint.adapter.out.persistence.entity.BusLocationSnapshotEntity;
 import org.nowstart.waypoint.adapter.out.persistence.entity.BusRouteEntity;
@@ -24,13 +25,15 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Component
+@RequiredArgsConstructor
 public class TransitPersistenceAdapter implements SaveTransitDataPort, LoadTransitDataPort {
 
     private final BusRouteJpaRepository busRouteRepository;
@@ -39,22 +42,6 @@ public class TransitPersistenceAdapter implements SaveTransitDataPort, LoadTrans
     private final BusLocationSnapshotJpaRepository locationSnapshotRepository;
     private final BusArrivalSnapshotJpaRepository arrivalSnapshotRepository;
     private final CollectionRunJpaRepository collectionRunRepository;
-
-    public TransitPersistenceAdapter(
-            BusRouteJpaRepository busRouteRepository,
-            BusStopJpaRepository busStopRepository,
-            RouteStopJpaRepository routeStopRepository,
-            BusLocationSnapshotJpaRepository locationSnapshotRepository,
-            BusArrivalSnapshotJpaRepository arrivalSnapshotRepository,
-            CollectionRunJpaRepository collectionRunRepository
-    ) {
-        this.busRouteRepository = busRouteRepository;
-        this.busStopRepository = busStopRepository;
-        this.routeStopRepository = routeStopRepository;
-        this.locationSnapshotRepository = locationSnapshotRepository;
-        this.arrivalSnapshotRepository = arrivalSnapshotRepository;
-        this.collectionRunRepository = collectionRunRepository;
-    }
 
     @Override
     @Transactional
@@ -81,60 +68,138 @@ public class TransitPersistenceAdapter implements SaveTransitDataPort, LoadTrans
     @Override
     @Transactional
     public int saveRoutes(String cityCode, List<LoadTagoRoutePort.TagoRoute> routes) {
-        int saved = 0;
-        for (LoadTagoRoutePort.TagoRoute route : routes) {
-            if (route.sourceRouteId() == null) {
-                continue;
-            }
-            BusRouteEntity entity = busRouteRepository.findByCityCodeAndSourceRouteId(cityCode, route.sourceRouteId())
-                    .orElseGet(() -> BusRouteEntity.create(cityCode, route));
-            entity.update(route);
-            busRouteRepository.save(entity);
-            saved++;
+        List<LoadTagoRoutePort.TagoRoute> validRoutes = routes.stream()
+                .filter(route -> route.sourceRouteId() != null)
+                .toList();
+        if (validRoutes.isEmpty()) {
+            return 0;
         }
-        return saved;
+
+        List<LoadTagoRoutePort.TagoRoute> uniqueRoutes = distinctByKey(
+                validRoutes,
+                LoadTagoRoutePort.TagoRoute::sourceRouteId
+        );
+        List<String> sourceRouteIds = uniqueRoutes.stream()
+                .map(LoadTagoRoutePort.TagoRoute::sourceRouteId)
+                .toList();
+        Map<String, BusRouteEntity> routeEntityMap = busRouteRepository
+                .findAllByCityCodeAndSourceRouteIdIn(cityCode, sourceRouteIds).stream()
+                .collect(Collectors.toMap(BusRouteEntity::getSourceRouteId, Function.identity(), (left, right) -> left));
+
+        List<LoadTagoRoutePort.TagoRoute> insertRoutes = uniqueRoutes.stream()
+                .filter(route -> !routeEntityMap.containsKey(route.sourceRouteId()))
+                .toList();
+        List<LoadTagoRoutePort.TagoRoute> updateRoutes = uniqueRoutes.stream()
+                .filter(route -> routeEntityMap.containsKey(route.sourceRouteId()))
+                .toList();
+
+        List<BusRouteEntity> entities = new java.util.ArrayList<>(uniqueRoutes.size());
+        insertRoutes.stream()
+                .map(route -> BusRouteEntity.create(cityCode, route))
+                .forEach(entities::add);
+        updateRoutes.stream()
+                .map(route -> {
+                    BusRouteEntity entity = routeEntityMap.get(route.sourceRouteId());
+                    entity.update(route);
+                    return entity;
+                })
+                .forEach(entities::add);
+        busRouteRepository.saveAll(entities);
+        return uniqueRoutes.size();
     }
 
     @Override
     @Transactional
     public int saveRouteStops(String cityCode, String sourceRouteId, List<LoadTagoRoutePort.TagoRouteStop> stops) {
-        Optional<BusRouteEntity> route = busRouteRepository.findByCityCodeAndSourceRouteId(cityCode, sourceRouteId);
-        if (route.isEmpty()) {
+        if (!busRouteRepository.existsByCityCodeAndSourceRouteId(cityCode, sourceRouteId)) {
             return 0;
         }
 
-        int saved = 0;
-        for (LoadTagoRoutePort.TagoRouteStop stop : stops) {
-            if (stop.sourceNodeId() == null || stop.nodeOrder() == null) {
-                continue;
-            }
-            BusStopEntity stopEntity = busStopRepository.findByCityCodeAndSourceNodeId(cityCode, stop.sourceNodeId())
-                    .orElseGet(() -> BusStopEntity.create(cityCode, stop));
-            stopEntity.update(stop);
-            BusStopEntity savedStop = busStopRepository.save(stopEntity);
-
-            RouteStopEntity routeStop = routeStopRepository.findByBusRouteIdAndNodeOrder(route.get().getId(), stop.nodeOrder())
-                    .orElseGet(() -> new RouteStopEntity(route.get().getId(), savedStop.getId(), stop.nodeOrder()));
-            routeStop.updateBusStopId(savedStop.getId());
-            routeStopRepository.save(routeStop);
-            saved++;
+        List<LoadTagoRoutePort.TagoRouteStop> validStops = stops.stream()
+                .filter(stop -> stop.sourceNodeId() != null && stop.nodeOrder() != null)
+                .toList();
+        if (validStops.isEmpty()) {
+            return 0;
         }
-        return saved;
+
+        List<LoadTagoRoutePort.TagoRouteStop> uniqueStops = distinctByKey(
+                validStops,
+                LoadTagoRoutePort.TagoRouteStop::sourceNodeId
+        );
+        List<String> sourceNodeIds = uniqueStops.stream()
+                .map(LoadTagoRoutePort.TagoRouteStop::sourceNodeId)
+                .toList();
+        Map<String, BusStopEntity> stopEntityMap = busStopRepository
+                .findAllByCityCodeAndSourceNodeIdIn(cityCode, sourceNodeIds).stream()
+                .collect(Collectors.toMap(BusStopEntity::getSourceNodeId, Function.identity(), (left, right) -> left));
+
+        List<LoadTagoRoutePort.TagoRouteStop> insertStops = uniqueStops.stream()
+                .filter(stop -> !stopEntityMap.containsKey(stop.sourceNodeId()))
+                .toList();
+        List<LoadTagoRoutePort.TagoRouteStop> updateStops = uniqueStops.stream()
+                .filter(stop -> stopEntityMap.containsKey(stop.sourceNodeId()))
+                .toList();
+
+        List<BusStopEntity> stopEntities = new java.util.ArrayList<>(uniqueStops.size());
+        insertStops.stream()
+                .map(stop -> BusStopEntity.create(cityCode, stop))
+                .forEach(stopEntities::add);
+        updateStops.stream()
+                .map(stop -> {
+                    BusStopEntity entity = stopEntityMap.get(stop.sourceNodeId());
+                    entity.update(stop);
+                    return entity;
+                })
+                .forEach(stopEntities::add);
+
+        List<BusStopEntity> savedStops = busStopRepository.saveAll(stopEntities);
+        Map<String, BusStopEntity> savedStopMap = savedStops.stream()
+                .collect(Collectors.toMap(BusStopEntity::getSourceNodeId, Function.identity(), (left, right) -> left));
+
+        List<LoadTagoRoutePort.TagoRouteStop> uniqueRouteStops = distinctByKey(
+                validStops,
+                LoadTagoRoutePort.TagoRouteStop::nodeOrder
+        );
+        List<Integer> nodeOrders = uniqueRouteStops.stream()
+                .map(LoadTagoRoutePort.TagoRouteStop::nodeOrder)
+                .toList();
+        Map<Integer, RouteStopEntity> routeStopMap = routeStopRepository
+                .findAllByCityCodeAndSourceRouteIdAndNodeOrderIn(cityCode, sourceRouteId, nodeOrders).stream()
+                .collect(Collectors.toMap(RouteStopEntity::getNodeOrder, Function.identity(), (left, right) -> left));
+
+        List<LoadTagoRoutePort.TagoRouteStop> insertRouteStops = uniqueRouteStops.stream()
+                .filter(stop -> !routeStopMap.containsKey(stop.nodeOrder()))
+                .toList();
+        List<LoadTagoRoutePort.TagoRouteStop> updateRouteStops = uniqueRouteStops.stream()
+                .filter(stop -> routeStopMap.containsKey(stop.nodeOrder()))
+                .toList();
+
+        List<RouteStopEntity> routeStopEntities = new java.util.ArrayList<>(uniqueRouteStops.size());
+        insertRouteStops.stream()
+                .map(stop -> new RouteStopEntity(
+                        cityCode,
+                        sourceRouteId,
+                        savedSourceNodeId(savedStopMap, stop),
+                        stop.nodeOrder()
+                ))
+                .forEach(routeStopEntities::add);
+        updateRouteStops.stream()
+                .map(stop -> {
+                    RouteStopEntity entity = routeStopMap.get(stop.nodeOrder());
+                    entity.updateSourceNodeId(savedSourceNodeId(savedStopMap, stop));
+                    return entity;
+                })
+                .forEach(routeStopEntities::add);
+        routeStopRepository.saveAll(routeStopEntities);
+        return uniqueRouteStops.size();
     }
 
     @Override
     @Transactional
-    public int saveLocationSnapshots(
-            String cityCode,
-            String sourceRouteId,
-            List<LoadTagoLocationPort.TagoBusLocation> locations
-    ) {
-        Long busRouteId = busRouteRepository.findByCityCodeAndSourceRouteId(cityCode, sourceRouteId)
-                .map(BusRouteEntity::getId)
-                .orElse(null);
+    public int saveLocationSnapshots(String cityCode, List<LoadTagoLocationPort.TagoBusLocation> locations) {
         List<BusLocationSnapshotEntity> entities = locations.stream()
                 .filter(location -> location.sourceRouteId() != null)
-                .map(location -> new BusLocationSnapshotEntity(busRouteId, location))
+                .map(location -> new BusLocationSnapshotEntity(cityCode, location))
                 .toList();
         locationSnapshotRepository.saveAll(entities);
         return entities.size();
@@ -142,47 +207,25 @@ public class TransitPersistenceAdapter implements SaveTransitDataPort, LoadTrans
 
     @Override
     @Transactional
-    public int saveArrivalSnapshots(
-            String cityCode,
-            String sourceNodeId,
-            List<LoadTagoArrivalPort.TagoBusArrival> arrivals
-    ) {
-        BusStopEntity stop = busStopRepository.findByCityCodeAndSourceNodeId(cityCode, sourceNodeId)
-                .orElse(null);
-        Long busStopId = stop == null ? null : stop.getId();
-
-        List<String> sourceRouteIds = arrivals.stream()
-                .map(LoadTagoArrivalPort.TagoBusArrival::sourceRouteId)
-                .filter(Objects::nonNull)
-                .distinct()
-                .toList();
-        Map<String, Long> routeIdMap = sourceRouteIds.isEmpty()
-                ? Map.of()
-                : busRouteRepository.findAllByCityCodeAndSourceRouteIdIn(cityCode, sourceRouteIds).stream()
-                .collect(Collectors.toMap(
-                        BusRouteEntity::getSourceRouteId,
-                        BusRouteEntity::getId,
-                        (left, right) -> left
-                ));
-
+    public int saveArrivalSnapshots(String cityCode, List<LoadTagoArrivalPort.TagoBusArrival> arrivals) {
         List<BusArrivalSnapshotEntity> entities = arrivals.stream()
-                .map(arrival -> new BusArrivalSnapshotEntity(
-                        busStopId,
-                        routeIdMap.get(arrival.sourceRouteId()),
-                        arrival
-                ))
+                .filter(arrival -> arrival.sourceNodeId() != null)
+                .map(arrival -> new BusArrivalSnapshotEntity(cityCode, arrival))
                 .toList();
         arrivalSnapshotRepository.saveAll(entities);
 
-        arrivals.stream()
-                .map(LoadTagoArrivalPort.TagoBusArrival::collectedAt)
-                .filter(Objects::nonNull)
-                .findFirst()
-                .ifPresent(collectedAt -> {
-                    if (stop != null) {
-                        stop.markArrivalCollected(collectedAt);
-                    }
-                });
+        Map<String, Instant> latestCollectedAtByStop = arrivals.stream()
+                .filter(arrival -> arrival.sourceNodeId() != null)
+                .filter(arrival -> arrival.collectedAt() != null)
+                .collect(Collectors.toMap(
+                        LoadTagoArrivalPort.TagoBusArrival::sourceNodeId,
+                        LoadTagoArrivalPort.TagoBusArrival::collectedAt,
+                        (left, right) -> left.isAfter(right) ? left : right
+                ));
+        if (!latestCollectedAtByStop.isEmpty()) {
+            busStopRepository.findAllByCityCodeAndSourceNodeIdIn(cityCode, latestCollectedAtByStop.keySet())
+                    .forEach(stop -> stop.markArrivalCollected(latestCollectedAtByStop.get(stop.getSourceNodeId())));
+        }
         return entities.size();
     }
 
@@ -190,7 +233,7 @@ public class TransitPersistenceAdapter implements SaveTransitDataPort, LoadTrans
     @Transactional(readOnly = true)
     public List<RouteReference> loadRoutes(String cityCode) {
         return busRouteRepository.findAllByCityCodeOrderByRouteNoAsc(cityCode).stream()
-                .map(route -> new RouteReference(route.getId(), route.getCityCode(), route.getSourceRouteId(), route.getRouteNo()))
+                .map(route -> new RouteReference(route.getCityCode(), route.getSourceRouteId(), route.getRouteNo()))
                 .toList();
     }
 
@@ -199,7 +242,6 @@ public class TransitPersistenceAdapter implements SaveTransitDataPort, LoadTrans
     public List<StopReference> loadStops(String cityCode) {
         return busStopRepository.findAllByCityCodeOrderBySourceNodeIdAsc(cityCode).stream()
                 .map(stop -> new StopReference(
-                        stop.getId(),
                         stop.getCityCode(),
                         stop.getSourceNodeId(),
                         stop.getNodeName(),
@@ -241,6 +283,25 @@ public class TransitPersistenceAdapter implements SaveTransitDataPort, LoadTrans
         return collectionRunRepository.findAllByOrderByStartedAtDesc(PageRequest.of(0, Math.max(1, limit))).stream()
                 .map(this::toRunView)
                 .toList();
+    }
+
+    private static String savedSourceNodeId(
+            Map<String, BusStopEntity> savedStopMap,
+            LoadTagoRoutePort.TagoRouteStop stop
+    ) {
+        BusStopEntity savedStop = savedStopMap.get(stop.sourceNodeId());
+        if (savedStop == null) {
+            throw new IllegalStateException("저장된 정류장을 찾을 수 없습니다. sourceNodeId=" + stop.sourceNodeId());
+        }
+        return savedStop.getSourceNodeId();
+    }
+
+    private static <T, K> List<T> distinctByKey(List<T> values, Function<T, K> keyExtractor) {
+        Map<K, T> map = new LinkedHashMap<>();
+        for (T value : values) {
+            map.put(keyExtractor.apply(value), value);
+        }
+        return List.copyOf(map.values());
     }
 
     private CollectionRunSnapshot toRunView(CollectionRunEntity run) {

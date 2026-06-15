@@ -1,3 +1,6 @@
+server:
+  port: 18080
+
 spring:
   datasource:
     url: jdbc:h2:mem:localdb;MODE=MariaDB;DB_CLOSE_DELAY=-1
@@ -6,6 +9,12 @@ spring:
   jpa:
     hibernate:
       ddl-auto: create-drop
+    properties:
+      hibernate:
+        jdbc:
+          batch_size: 100
+        order_inserts: true
+        order_updates: true
   jmx:
     enabled: false
   h2:
@@ -38,6 +47,10 @@ waypoint:
     read-timeout: 20s
     collection:
       location-fixed-delay: 10s
+      location-initial-delay: 0s
+      reference-data-concurrency: 4
+      location-concurrency: 4
+      arrival-concurrency: 4
   ollama:
     base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
     model: ${OLLAMA_MODEL:llama3.1}

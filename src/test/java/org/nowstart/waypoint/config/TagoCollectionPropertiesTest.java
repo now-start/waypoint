@@ -1,0 +1,33 @@
+package org.nowstart.waypoint.config;
+
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+import static org.assertj.core.api.BDDAssertions.then;
+
+class TagoCollectionPropertiesTest {
+
+    @Test
+    @DisplayName("수집 동시성을 지정하지 않으면 4를 기본값으로 사용한다")
+    void collectionConcurrencyDefaultsToFour() {
+        // when: 수집 동시성을 지정하지 않는다
+        TagoCollectionProperties properties = new TagoCollectionProperties(0, 0, 0);
+
+        // then: 기본 동시성 4를 사용한다
+        then(properties.referenceDataConcurrency()).isEqualTo(4);
+        then(properties.locationConcurrency()).isEqualTo(4);
+        then(properties.arrivalConcurrency()).isEqualTo(4);
+    }
+
+    @Test
+    @DisplayName("수집 동시성은 최대 8로 제한한다")
+    void collectionConcurrencyCapsAtEight() {
+        // when: 과도한 동시성을 지정한다
+        TagoCollectionProperties properties = new TagoCollectionProperties(20, 20, 20);
+
+        // then: TAGO API 과호출을 막기 위해 8로 제한한다
+        then(properties.referenceDataConcurrency()).isEqualTo(8);
+        then(properties.locationConcurrency()).isEqualTo(8);
+        then(properties.arrivalConcurrency()).isEqualTo(8);
+    }
+}

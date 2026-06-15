@@ -1,10 +1,12 @@
 package org.nowstart.waypoint.application.service;
 
+import lombok.RequiredArgsConstructor;
 import org.nowstart.waypoint.application.port.in.CollectBusArrivalUseCase;
 import org.nowstart.waypoint.application.port.in.CollectionResult;
 import org.nowstart.waypoint.application.port.out.LoadTagoArrivalPort;
 import org.nowstart.waypoint.application.port.out.LoadTransitDataPort;
 import org.nowstart.waypoint.application.port.out.SaveTransitDataPort;
+import org.nowstart.waypoint.config.TagoCollectionProperties;
 import org.nowstart.waypoint.domain.type.CollectionApiType;
 import org.nowstart.waypoint.domain.type.CollectionStatus;
 import org.springframework.stereotype.Service;
@@ -13,27 +15,17 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Service
+@RequiredArgsConstructor
 public class BusArrivalCollectionInteractor implements CollectBusArrivalUseCase {
+
+    private static final int FAILURE_MESSAGE_LIMIT = 10;
 
     private final TagoCityCodeResolver cityCodeResolver;
     private final LoadTransitDataPort loadTransitDataPort;
     private final LoadTagoArrivalPort arrivalPort;
     private final SaveTransitDataPort saveTransitDataPort;
     private final CollectionRunSupport runSupport;
-
-    public BusArrivalCollectionInteractor(
-            TagoCityCodeResolver cityCodeResolver,
-            LoadTransitDataPort loadTransitDataPort,
-            LoadTagoArrivalPort arrivalPort,
-            SaveTransitDataPort saveTransitDataPort,
-            CollectionRunSupport runSupport
-    ) {
-        this.cityCodeResolver = cityCodeResolver;
-        this.loadTransitDataPort = loadTransitDataPort;
-        this.arrivalPort = arrivalPort;
-        this.saveTransitDataPort = saveTransitDataPort;
-        this.runSupport = runSupport;
-    }
+    private final TagoCollectionProperties collectionProperties;
 
     @Override
     public CollectionResult collectAllStops() {
@@ -50,19 +42,29 @@ public class BusArrivalCollectionInteractor implements CollectBusArrivalUseCase 
                         "수집된 정류장 기준 데이터가 없습니다.");
             }
 
-            int rowCount = 0;
+            List<ConcurrentCollectionSupport.TaskResult<
+                    LoadTransitDataPort.StopReference,
+                    List<LoadTagoArrivalPort.TagoBusArrival>>> results = ConcurrentCollectionSupport.execute(
+                    stops,
+                    collectionProperties.arrivalConcurrency(),
+                    stop -> arrivalPort.loadArrivals(cityCode, stop.sourceNodeId()),
+                    stop -> List.of()
+            );
+
+            List<LoadTagoArrivalPort.TagoBusArrival> arrivals = new ArrayList<>();
             int failureCount = 0;
             List<String> failedStopIds = new ArrayList<>();
-            for (LoadTransitDataPort.StopReference stop : stops) {
-                try {
-                    List<LoadTagoArrivalPort.TagoBusArrival> arrivals =
-                            arrivalPort.loadArrivals(cityCode, stop.sourceNodeId());
-                    rowCount += saveTransitDataPort.saveArrivalSnapshots(cityCode, stop.sourceNodeId(), arrivals);
-                } catch (RuntimeException ex) {
+            for (ConcurrentCollectionSupport.TaskResult<
+                    LoadTransitDataPort.StopReference,
+                    List<LoadTagoArrivalPort.TagoBusArrival>> result : results) {
+                if (result.failed()) {
                     failureCount++;
-                    failedStopIds.add(stop.sourceNodeId());
+                    failedStopIds.add(result.source().sourceNodeId());
+                } else {
+                    arrivals.addAll(result.value());
                 }
             }
+            int rowCount = saveTransitDataPort.saveArrivalSnapshots(cityCode, arrivals);
 
             CollectionStatus status = status(rowCount, failureCount);
             return runSupport.finish(run, status, rowCount, failureCount,
@@ -77,7 +79,7 @@ public class BusArrivalCollectionInteractor implements CollectBusArrivalUseCase 
         if (failedStopIds.isEmpty()) {
             return message;
         }
-        int limit = Math.min(10, failedStopIds.size());
+        int limit = Math.min(FAILURE_MESSAGE_LIMIT, failedStopIds.size());
         String suffix = failedStopIds.size() > limit ? ", ..." : "";
         return message + ", failedStopIds=" + failedStopIds.subList(0, limit) + suffix;
     }

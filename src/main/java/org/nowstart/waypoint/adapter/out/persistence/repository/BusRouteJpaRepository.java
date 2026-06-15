@@ -5,11 +5,10 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Collection;
 import java.util.List;
-import java.util.Optional;
 
-public interface BusRouteJpaRepository extends JpaRepository<BusRouteEntity, Long> {
+public interface BusRouteJpaRepository extends JpaRepository<BusRouteEntity, BusRouteEntity.Id> {
 
-    Optional<BusRouteEntity> findByCityCodeAndSourceRouteId(String cityCode, String sourceRouteId);
+    boolean existsByCityCodeAndSourceRouteId(String cityCode, String sourceRouteId);
 
     List<BusRouteEntity> findAllByCityCodeOrderByRouteNoAsc(String cityCode);
 

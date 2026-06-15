@@ -4,72 +4,140 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.ForeignKey;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
+import jakarta.persistence.IdClass;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
+import jakarta.persistence.JoinColumns;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PostLoad;
+import jakarta.persistence.PostPersist;
 import jakarta.persistence.Table;
-import jakarta.persistence.UniqueConstraint;
+import jakarta.persistence.Transient;
+import lombok.AccessLevel;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import org.springframework.data.domain.Persistable;
 
+import java.io.Serializable;
 import java.time.Instant;
 
 @Entity
+@IdClass(RouteStopEntity.Id.class)
 @Table(
         name = "route_stops",
-        uniqueConstraints = @UniqueConstraint(name = "uk_route_stop_order", columnNames = {"bus_route_id", "node_order"})
+        indexes = @Index(name = "ix_route_stop_node", columnList = "city_code,source_node_id")
 )
-public class RouteStopEntity {
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
+public class RouteStopEntity implements Persistable<RouteStopEntity.Id> {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    @jakarta.persistence.Id
+    @Column(name = "city_code", nullable = false, length = 20)
+    private String cityCode;
 
-    @Column(name = "bus_route_id", nullable = false)
-    private Long busRouteId;
+    @jakarta.persistence.Id
+    @Column(name = "source_route_id", nullable = false, length = 80)
+    private String sourceRouteId;
 
-    // 수집/갱신은 ID 컬럼으로 처리하고, 연관 객체는 조회 전용으로만 사용한다.
+    @Column(name = "source_node_id", nullable = false, length = 80)
+    private String sourceNodeId;
+
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(
-            name = "bus_route_id",
-            nullable = false,
-            insertable = false,
-            updatable = false,
+    @JoinColumns(
+            value = {
+                    @JoinColumn(
+                            name = "city_code",
+                            referencedColumnName = "city_code",
+                            insertable = false,
+                            updatable = false,
+                            nullable = false
+                    ),
+                    @JoinColumn(
+                            name = "source_route_id",
+                            referencedColumnName = "source_route_id",
+                            insertable = false,
+                            updatable = false,
+                            nullable = false
+                    )
+            },
             foreignKey = @ForeignKey(name = "fk_route_stop_route")
     )
     private BusRouteEntity busRoute;
 
-    @Column(name = "bus_stop_id", nullable = false)
-    private Long busStopId;
-
-    // 수집/갱신은 ID 컬럼으로 처리하고, 연관 객체는 조회 전용으로만 사용한다.
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(
-            name = "bus_stop_id",
-            nullable = false,
-            insertable = false,
-            updatable = false,
+    @JoinColumns(
+            value = {
+                    @JoinColumn(
+                            name = "city_code",
+                            referencedColumnName = "city_code",
+                            insertable = false,
+                            updatable = false,
+                            nullable = false
+                    ),
+                    @JoinColumn(
+                            name = "source_node_id",
+                            referencedColumnName = "source_node_id",
+                            insertable = false,
+                            updatable = false,
+                            nullable = false
+                    )
+            },
             foreignKey = @ForeignKey(name = "fk_route_stop_stop")
     )
     private BusStopEntity busStop;
 
+    @jakarta.persistence.Id
     @Column(name = "node_order", nullable = false)
+    @Getter
     private int nodeOrder;
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
-    protected RouteStopEntity() {
-    }
+    @Transient
+    private boolean newEntity = true;
 
-    public RouteStopEntity(Long busRouteId, Long busStopId, int nodeOrder) {
-        this.busRouteId = busRouteId;
-        this.busStopId = busStopId;
+    public RouteStopEntity(String cityCode, String sourceRouteId, String sourceNodeId, int nodeOrder) {
+        this.cityCode = cityCode;
+        this.sourceRouteId = sourceRouteId;
+        this.sourceNodeId = sourceNodeId;
         this.nodeOrder = nodeOrder;
         this.createdAt = Instant.now();
     }
 
-    public void updateBusStopId(Long busStopId) {
-        this.busStopId = busStopId;
+    public void updateSourceNodeId(String sourceNodeId) {
+        this.sourceNodeId = sourceNodeId;
+    }
+
+    @Override
+    public Id getId() {
+        return new Id(cityCode, sourceRouteId, nodeOrder);
+    }
+
+    @Override
+    public boolean isNew() {
+        return newEntity;
+    }
+
+    @PostLoad
+    @PostPersist
+    void markNotNew() {
+        this.newEntity = false;
+    }
+
+    @Getter
+    @NoArgsConstructor
+    @EqualsAndHashCode
+    public static class Id implements Serializable {
+
+        private String cityCode;
+        private String sourceRouteId;
+        private int nodeOrder;
+
+        public Id(String cityCode, String sourceRouteId, int nodeOrder) {
+            this.cityCode = cityCode;
+            this.sourceRouteId = sourceRouteId;
+            this.nodeOrder = nodeOrder;
+        }
     }
 }

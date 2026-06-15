@@ -23,15 +23,7 @@ public interface SaveTransitDataPort {
 
     int saveRouteStops(String cityCode, String sourceRouteId, List<LoadTagoRoutePort.TagoRouteStop> stops);
 
-    int saveLocationSnapshots(
-            String cityCode,
-            String sourceRouteId,
-            List<LoadTagoLocationPort.TagoBusLocation> locations
-    );
+    int saveLocationSnapshots(String cityCode, List<LoadTagoLocationPort.TagoBusLocation> locations);
 
-    int saveArrivalSnapshots(
-            String cityCode,
-            String sourceNodeId,
-            List<LoadTagoArrivalPort.TagoBusArrival> arrivals
-    );
+    int saveArrivalSnapshots(String cityCode, List<LoadTagoArrivalPort.TagoBusArrival> arrivals);
 }

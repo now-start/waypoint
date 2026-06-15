@@ -22,7 +22,6 @@ public interface LoadTransitDataPort {
     List<CollectionRunSnapshot> loadRecentRuns(int limit);
 
     record RouteReference(
-            Long busRouteId,
             String cityCode,
             String sourceRouteId,
             String routeNo
@@ -30,7 +29,6 @@ public interface LoadTransitDataPort {
     }
 
     record StopReference(
-            Long busStopId,
             String cityCode,
             String sourceNodeId,
             String nodeName,

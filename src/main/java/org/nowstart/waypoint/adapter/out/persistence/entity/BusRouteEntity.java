@@ -2,29 +2,33 @@ package org.nowstart.waypoint.adapter.out.persistence.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
+import jakarta.persistence.IdClass;
+import jakarta.persistence.PostLoad;
+import jakarta.persistence.PostPersist;
 import jakarta.persistence.Table;
-import jakarta.persistence.UniqueConstraint;
+import jakarta.persistence.Transient;
+import lombok.AccessLevel;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 import org.nowstart.waypoint.application.port.out.LoadTagoRoutePort;
+import org.springframework.data.domain.Persistable;
 
+import java.io.Serializable;
 import java.time.Instant;
 
 @Entity
-@Table(
-        name = "bus_routes",
-        uniqueConstraints = @UniqueConstraint(name = "uk_bus_route_source", columnNames = {"city_code", "source_route_id"})
-)
-public class BusRouteEntity {
+@IdClass(BusRouteEntity.Id.class)
+@Table(name = "bus_routes")
+@Getter
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
+public class BusRouteEntity implements Persistable<BusRouteEntity.Id> {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
-
+    @jakarta.persistence.Id
     @Column(name = "city_code", nullable = false, length = 20)
     private String cityCode;
 
+    @jakarta.persistence.Id
     @Column(name = "source_route_id", nullable = false, length = 80)
     private String sourceRouteId;
 
@@ -61,8 +65,8 @@ public class BusRouteEntity {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
-    protected BusRouteEntity() {
-    }
+    @Transient
+    private boolean newEntity = true;
 
     private BusRouteEntity(String cityCode, String sourceRouteId) {
         this.cityCode = cityCode;
@@ -91,19 +95,33 @@ public class BusRouteEntity {
         this.updatedAt = Instant.now();
     }
 
-    public Long getId() {
-        return id;
+    @Override
+    public Id getId() {
+        return new Id(cityCode, sourceRouteId);
     }
 
-    public String getCityCode() {
-        return cityCode;
+    @Override
+    public boolean isNew() {
+        return newEntity;
     }
 
-    public String getSourceRouteId() {
-        return sourceRouteId;
+    @PostLoad
+    @PostPersist
+    void markNotNew() {
+        this.newEntity = false;
     }
 
-    public String getRouteNo() {
-        return routeNo;
+    @Getter
+    @NoArgsConstructor
+    @EqualsAndHashCode
+    public static class Id implements Serializable {
+
+        private String cityCode;
+        private String sourceRouteId;
+
+        public Id(String cityCode, String sourceRouteId) {
+            this.cityCode = cityCode;
+            this.sourceRouteId = sourceRouteId;
+        }
     }
 }
