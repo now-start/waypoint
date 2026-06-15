@@ -1,5 +1,6 @@
 package org.nowstart.waypoint.application.service;
 
+import lombok.RequiredArgsConstructor;
 import org.nowstart.waypoint.application.port.in.QueryCollectionStatusUseCase;
 import org.nowstart.waypoint.application.port.out.LoadTransitDataPort;
 import org.springframework.stereotype.Service;
@@ -7,15 +8,12 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 
 @Service
+@RequiredArgsConstructor
 public class CollectionStatusInteractor implements QueryCollectionStatusUseCase {
 
     private static final int DEFAULT_RECENT_RUN_LIMIT = 10;
 
     private final LoadTransitDataPort loadTransitDataPort;
-
-    public CollectionStatusInteractor(LoadTransitDataPort loadTransitDataPort) {
-        this.loadTransitDataPort = loadTransitDataPort;
-    }
 
     @Override
     public CollectionStatusView getStatus() {

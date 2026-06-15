@@ -1,5 +1,6 @@
 package org.nowstart.waypoint.adapter.in.web;
 
+import lombok.RequiredArgsConstructor;
 import org.nowstart.waypoint.application.port.in.CollectBusArrivalUseCase;
 import org.nowstart.waypoint.application.port.in.CollectBusLocationUseCase;
 import org.nowstart.waypoint.application.port.in.CollectReferenceDataUseCase;
@@ -15,24 +16,13 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/collections")
+@RequiredArgsConstructor
 public class CollectionController {
 
     private final CollectReferenceDataUseCase collectReferenceDataUseCase;
     private final CollectBusLocationUseCase collectBusLocationUseCase;
     private final CollectBusArrivalUseCase collectBusArrivalUseCase;
     private final QueryCollectionStatusUseCase queryCollectionStatusUseCase;
-
-    public CollectionController(
-            CollectReferenceDataUseCase collectReferenceDataUseCase,
-            CollectBusLocationUseCase collectBusLocationUseCase,
-            CollectBusArrivalUseCase collectBusArrivalUseCase,
-            QueryCollectionStatusUseCase queryCollectionStatusUseCase
-    ) {
-        this.collectReferenceDataUseCase = collectReferenceDataUseCase;
-        this.collectBusLocationUseCase = collectBusLocationUseCase;
-        this.collectBusArrivalUseCase = collectBusArrivalUseCase;
-        this.queryCollectionStatusUseCase = queryCollectionStatusUseCase;
-    }
 
     @PostMapping("/reference-data")
     public CollectionResult collectReferenceData() {

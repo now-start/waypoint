@@ -2,6 +2,7 @@ package org.nowstart.waypoint.adapter.out.tago;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.RequiredArgsConstructor;
 import org.nowstart.waypoint.application.port.out.TagoApiException;
 import org.springframework.stereotype.Component;
 
@@ -12,13 +13,10 @@ import java.util.List;
 import java.util.Locale;
 
 @Component
+@RequiredArgsConstructor
 public class TagoResponseParser {
 
     private final ObjectMapper objectMapper;
-
-    public TagoResponseParser(ObjectMapper objectMapper) {
-        this.objectMapper = objectMapper;
-    }
 
     public ParsedTagoResponse parse(String rawBody) {
         try {

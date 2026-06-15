@@ -1,19 +1,17 @@
 package org.nowstart.waypoint.application.service;
 
+import lombok.AccessLevel;
+import lombok.RequiredArgsConstructor;
 import org.nowstart.waypoint.application.port.out.LoadTagoRoutePort;
 import org.nowstart.waypoint.application.port.out.TagoCitySettings;
 import org.springframework.stereotype.Component;
 
 @Component
+@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 class TagoCityCodeResolver {
 
     private final TagoCitySettings settings;
     private final LoadTagoRoutePort routePort;
-
-    TagoCityCodeResolver(TagoCitySettings settings, LoadTagoRoutePort routePort) {
-        this.settings = settings;
-        this.routePort = routePort;
-    }
 
     String resolve() {
         return settings.configuredCityCode()

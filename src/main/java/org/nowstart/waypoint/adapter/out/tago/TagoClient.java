@@ -1,10 +1,9 @@
 package org.nowstart.waypoint.adapter.out.tago;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import lombok.extern.slf4j.Slf4j;
 import org.nowstart.waypoint.application.port.out.TagoApiException;
 import org.nowstart.waypoint.config.TagoProperties;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -22,9 +21,9 @@ import java.util.List;
 import java.util.Map;
 
 @Component
+@Slf4j
 public class TagoClient {
 
-    private static final Logger log = LoggerFactory.getLogger(TagoClient.class);
     private static final String TYPE_JSON = "json";
 
     private final TagoProperties properties;

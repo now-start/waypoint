@@ -1,5 +1,7 @@
 package org.nowstart.waypoint.application.service;
 
+import lombok.AccessLevel;
+import lombok.RequiredArgsConstructor;
 import org.nowstart.waypoint.application.port.in.CollectionResult;
 import org.nowstart.waypoint.application.port.out.SaveTransitDataPort;
 import org.nowstart.waypoint.application.port.out.TagoApiException;
@@ -10,13 +12,10 @@ import org.springframework.stereotype.Component;
 import java.time.Instant;
 
 @Component
+@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 class CollectionRunSupport {
 
     private final SaveTransitDataPort saveTransitDataPort;
-
-    CollectionRunSupport(SaveTransitDataPort saveTransitDataPort) {
-        this.saveTransitDataPort = saveTransitDataPort;
-    }
 
     CollectionRun start(CollectionApiType apiType, String requestKey, String requestParamsJson) {
         Instant startedAt = Instant.now();

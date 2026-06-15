@@ -9,6 +9,9 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 import org.nowstart.waypoint.domain.type.CollectionApiType;
 import org.nowstart.waypoint.domain.type.CollectionStatus;
 
@@ -16,6 +19,8 @@ import java.time.Instant;
 
 @Entity
 @Table(name = "collection_runs")
+@Getter
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class CollectionRunEntity {
 
     @Id
@@ -59,9 +64,6 @@ public class CollectionRunEntity {
     @Column(name = "error_message")
     private String errorMessage;
 
-    protected CollectionRunEntity() {
-    }
-
     public CollectionRunEntity(CollectionApiType apiType, String requestKey, String requestParamsJson) {
         this.apiType = apiType;
         this.requestKey = requestKey;
@@ -85,45 +87,5 @@ public class CollectionRunEntity {
         this.rowCount = rowCount;
         this.errorMessage = errorMessage;
         this.finishedAt = Instant.now();
-    }
-
-    public Long getId() {
-        return id;
-    }
-
-    public CollectionApiType getApiType() {
-        return apiType;
-    }
-
-    public String getRequestKey() {
-        return requestKey;
-    }
-
-    public Instant getStartedAt() {
-        return startedAt;
-    }
-
-    public Instant getFinishedAt() {
-        return finishedAt;
-    }
-
-    public CollectionStatus getStatus() {
-        return status;
-    }
-
-    public String getResultCode() {
-        return resultCode;
-    }
-
-    public String getResultMessage() {
-        return resultMessage;
-    }
-
-    public int getRowCount() {
-        return rowCount;
-    }
-
-    public String getErrorMessage() {
-        return errorMessage;
     }
 }

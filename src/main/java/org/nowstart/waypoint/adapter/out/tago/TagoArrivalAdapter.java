@@ -1,6 +1,7 @@
 package org.nowstart.waypoint.adapter.out.tago;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import lombok.RequiredArgsConstructor;
 import org.nowstart.waypoint.application.port.out.LoadTagoArrivalPort;
 import org.springframework.stereotype.Component;
 
@@ -9,15 +10,12 @@ import java.util.List;
 import java.util.Map;
 
 @Component
+@RequiredArgsConstructor
 public class TagoArrivalAdapter implements LoadTagoArrivalPort {
 
     private static final String SERVICE = "ArvlInfoInqireService";
 
     private final TagoClient client;
-
-    public TagoArrivalAdapter(TagoClient client) {
-        this.client = client;
-    }
 
     @Override
     public List<TagoBusArrival> loadArrivals(String cityCode, String sourceNodeId) {
