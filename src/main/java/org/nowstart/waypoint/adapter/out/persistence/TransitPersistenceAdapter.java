@@ -277,6 +277,39 @@ public class TransitPersistenceAdapter implements SaveTransitDataPort, LoadTrans
 
     @Override
     @Transactional(readOnly = true)
+    public List<LocationSnapshotReference> loadRecentLocationSnapshots(String cityCode, Instant since, int limit) {
+        return locationSnapshotRepository.findRecentByCityCode(cityCode, since, PageRequest.of(0, Math.max(1, limit))).stream()
+                .map(snapshot -> new LocationSnapshotReference(
+                        snapshot.getSourceRouteId(),
+                        snapshot.getRouteNo(),
+                        snapshot.getVehicleNo(),
+                        snapshot.getSourceNodeId(),
+                        snapshot.getNodeOrder(),
+                        snapshot.getGpsLatitude(),
+                        snapshot.getGpsLongitude(),
+                        snapshot.getCollectedAt()
+                ))
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ArrivalSnapshotReference> loadRecentArrivalSnapshots(String cityCode, Instant since, int limit) {
+        return arrivalSnapshotRepository.findRecentByCityCode(cityCode, since, PageRequest.of(0, Math.max(1, limit))).stream()
+                .map(snapshot -> new ArrivalSnapshotReference(
+                        snapshot.getSourceRouteId(),
+                        snapshot.getRouteNo(),
+                        snapshot.getSourceNodeId(),
+                        snapshot.getNodeName(),
+                        snapshot.getArrivalRemainingMinutes(),
+                        snapshot.getArrivalExpectedAt(),
+                        snapshot.getCollectedAt()
+                ))
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public Optional<Instant> latestLocationCollectedAt() {
         return locationSnapshotRepository.findLatestCollectedAt();
     }

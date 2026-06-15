@@ -1,5 +1,6 @@
 const statusEndpoint = "/api/collections/status";
 const runsEndpoint = "/api/collections/runs?limit=20";
+const anomaliesEndpoint = "/api/anomalies";
 const refreshIntervalSeconds = 30;
 
 const elements = {
@@ -29,60 +30,9 @@ const elements = {
 };
 
 let cachedRuns = [];
+let cachedAnomalies = [];
 let refreshTimerId;
 let secondsUntilRefresh = refreshIntervalSeconds;
-
-const sampleAnomalies = [
-    {
-        id: "wide-headway-101",
-        severity: "위험",
-        routeNo: "101",
-        type: "차량 간격 벌어짐",
-        area: "창원역 -> 시청",
-        baseline: "평일 기준 12분",
-        observed: "차량 간격 34분",
-        metric: "기준 대비 +22분",
-        reason: "동일 노선 연속 차량의 nodeOrder 차이가 18개 정류소까지 벌어졌고, 후속 차량 위치 갱신은 정상입니다.",
-        updatedAt: new Date().toISOString(),
-        snapshots: [
-            {collectedAt: "2026-06-15T10:58:00Z", vehicleNo: "창원71자1042", nodeName: "창원역", nodeOrder: 42, gps: "35.2571, 128.6051"},
-            {collectedAt: "2026-06-15T10:58:00Z", vehicleNo: "창원71자1188", nodeName: "시청", nodeOrder: 24, gps: "35.2279, 128.6817"},
-            {collectedAt: "2026-06-15T10:59:00Z", vehicleNo: "창원71자1188", nodeName: "중앙동", nodeOrder: 25, gps: "35.2287, 128.6785"}
-        ]
-    },
-    {
-        id: "stale-location-122",
-        severity: "주의",
-        routeNo: "122",
-        type: "위치 갱신 지연",
-        area: "중앙동 인근",
-        baseline: "위치 갱신 1분 주기",
-        observed: "최근 위치 8분 전",
-        metric: "기준 대비 +7분",
-        reason: "같은 노선의 다른 차량은 최근 1분 이내 갱신됐지만, 해당 차량만 8분 동안 새 스냅샷이 없습니다.",
-        updatedAt: new Date().toISOString(),
-        snapshots: [
-            {collectedAt: "2026-06-15T10:50:00Z", vehicleNo: "창원71자2201", nodeName: "중앙동", nodeOrder: 31, gps: "35.2275, 128.6811"},
-            {collectedAt: "2026-06-15T10:58:00Z", vehicleNo: "창원71자2250", nodeName: "도청", nodeOrder: 36, gps: "35.2382, 128.6918"}
-        ]
-    },
-    {
-        id: "narrow-headway-214",
-        severity: "주의",
-        routeNo: "214",
-        type: "차량 간격 붙음",
-        area: "마산역 -> 어시장",
-        baseline: "평일 기준 15분",
-        observed: "차량 간격 2분",
-        metric: "기준 대비 -13분",
-        reason: "연속 차량 2대가 2개 정류소 이내에 붙어 있고, 두 차량 모두 최근 스냅샷이 수집됐습니다.",
-        updatedAt: new Date().toISOString(),
-        snapshots: [
-            {collectedAt: "2026-06-15T10:57:00Z", vehicleNo: "창원71자3102", nodeName: "마산역", nodeOrder: 18, gps: "35.2370, 128.5801"},
-            {collectedAt: "2026-06-15T10:57:00Z", vehicleNo: "창원71자3199", nodeName: "마산역광장", nodeOrder: 16, gps: "35.2382, 128.5795"}
-        ]
-    }
-];
 
 function formatNumber(value) {
     return Number(value ?? 0).toLocaleString("ko-KR");
@@ -278,8 +228,8 @@ function startAutoRefresh() {
 }
 
 function renderFallbackBriefing() {
-    if (sampleAnomalies.length > 0) {
-        const top = sampleAnomalies[0];
+    if (cachedAnomalies.length > 0) {
+        const top = cachedAnomalies[0];
         elements.briefingText.textContent = `${top.routeNo}번 ${top.area} 구간에서 ${top.type} 징후가 우선 확인 대상입니다. 원래 배차는 ${top.baseline}이고, 최근 스냅샷에서는 ${top.observed}으로 관측되어 ${top.metric} 차이가 있습니다. 실제 원인은 현장 상황과 추가 수집 데이터를 함께 확인해야 합니다.`;
         return;
     }
@@ -310,7 +260,7 @@ async function renderBriefing() {
         const response = await fetchJson("/api/briefings/operations", {
             method: "POST",
             headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({anomalies: sampleAnomalies})
+            body: JSON.stringify({anomalies: cachedAnomalies.map(toBriefingAnomaly)})
         });
         elements.briefingText.textContent = response.content || "AI 브리핑 결과가 비어 있습니다.";
     } catch (error) {
@@ -344,7 +294,7 @@ function renderDetailTable(payload) {
 }
 
 function openAnomalyEvidence(anomalyId) {
-    const anomaly = sampleAnomalies.find((item) => item.id === anomalyId);
+    const anomaly = cachedAnomalies.find((item) => item.id === anomalyId);
     if (!anomaly) {
         showToast("이상징후 근거를 찾지 못했습니다.");
         return;
@@ -411,14 +361,16 @@ async function openDetail(button) {
 }
 
 async function loadDashboard() {
-    const [status, runs] = await Promise.all([
+    const [status, runs, anomalies] = await Promise.all([
         fetchJson(statusEndpoint),
-        fetchJson(runsEndpoint)
+        fetchJson(runsEndpoint),
+        fetchJson(anomaliesEndpoint)
     ]);
 
     cachedRuns = runs;
+    cachedAnomalies = Array.isArray(anomalies) ? anomalies : [];
     renderMetrics(status);
-    renderAnomalies(sampleAnomalies);
+    renderAnomalies(cachedAnomalies);
     renderRuns(runs);
     renderCollectionIssues(runs);
     elements.updatedAt.textContent = `기준 ${formatDateTime(new Date())}`;
@@ -439,6 +391,20 @@ async function collect(url, button) {
         button.disabled = false;
         button.textContent = originalText;
     }
+}
+
+function toBriefingAnomaly(anomaly) {
+    return {
+        severity: anomaly.severity,
+        routeNo: anomaly.routeNo,
+        type: anomaly.type,
+        area: anomaly.area,
+        baseline: anomaly.baseline,
+        observed: anomaly.observed,
+        metric: anomaly.metric,
+        reason: anomaly.reason,
+        snapshots: anomaly.snapshots
+    };
 }
 
 document.querySelector("#refreshButton").addEventListener("click", () => {
@@ -463,7 +429,7 @@ elements.detailModal.querySelector(".btn-close").addEventListener("click", hideM
 startAutoRefresh();
 
 loadDashboard().catch((error) => {
-    renderAnomalies(sampleAnomalies);
+    renderAnomalies(cachedAnomalies);
     elements.runsBody.innerHTML = `<tr><td class="empty-state" colspan="6">대시보드 데이터를 불러오지 못했습니다.</td></tr>`;
     elements.collectionIssueList.innerHTML = `<div class="empty-state">API 연결을 확인하세요.</div>`;
     showToast(`로딩 실패: ${error.message}`);

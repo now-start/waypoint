@@ -13,6 +13,10 @@ public interface LoadTransitDataPort {
 
     List<StopReference> loadStops(String cityCode);
 
+    List<LocationSnapshotReference> loadRecentLocationSnapshots(String cityCode, Instant since, int limit);
+
+    List<ArrivalSnapshotReference> loadRecentArrivalSnapshots(String cityCode, Instant since, int limit);
+
     Optional<Instant> latestLocationCollectedAt();
 
     Optional<Instant> latestArrivalCollectedAt();
@@ -39,6 +43,29 @@ public interface LoadTransitDataPort {
             String sourceNodeId,
             String nodeName,
             Instant lastArrivalCollectedAt
+    ) {
+    }
+
+    record LocationSnapshotReference(
+            String sourceRouteId,
+            String routeNo,
+            String vehicleNo,
+            String sourceNodeId,
+            Integer nodeOrder,
+            Double gpsLatitude,
+            Double gpsLongitude,
+            Instant collectedAt
+    ) {
+    }
+
+    record ArrivalSnapshotReference(
+            String sourceRouteId,
+            String routeNo,
+            String sourceNodeId,
+            String nodeName,
+            Integer arrivalRemainingMinutes,
+            Instant arrivalExpectedAt,
+            Instant collectedAt
     ) {
     }
 

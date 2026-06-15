@@ -63,7 +63,7 @@ public final class RouteLocationCollectionPolicy {
         return LONG_HEADWAY_INTERVAL;
     }
 
-    private static Integer headwayMinutes(RouteCollectionCandidate route, DayOfWeek dayOfWeek) {
+    public static Integer headwayMinutes(RouteCollectionCandidate route, DayOfWeek dayOfWeek) {
         return switch (dayOfWeek) {
             case SATURDAY -> firstPositive(route.saturdayIntervalMinutes(), route.weekdayIntervalMinutes());
             case SUNDAY -> firstPositive(route.sundayIntervalMinutes(), route.weekdayIntervalMinutes());
