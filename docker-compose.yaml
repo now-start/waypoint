@@ -12,7 +12,7 @@ services:
       - "9090:9090"   # Prometheus
       - "16686:16686" # Jaeger UI
   app:
-    image: waypoint:0.0.3
+    image: waypoint:0.0.4
     ports:
       - "18080:18080"
     environment:

@@ -8,9 +8,14 @@ const mapEndpoint = "api/operations/map";
 const refreshIntervalSeconds = 30;
 const detailSliceSize = 50;
 const detailScrollThresholdPx = 80;
-const mapWidth = 1000;
-const mapHeight = 640;
-const routePalette = ["#0f766e", "#2563eb", "#e11d48", "#a16207", "#7c3aed", "#0891b2", "#be123c", "#4d7c0f"];
+const mapWidth = 1200;
+const mapHeight = 490;
+const routePalette = ["#008c72", "#276ef1", "#e34f26", "#c51b7d", "#7b61ff", "#0097a7", "#d62828", "#2f855a"];
+const metroPaddingX = 92;
+const metroTopY = 74;
+const metroBottomY = 86;
+const metroMaxRouteGap = 56;
+const unmatchedVehicleLaneY = 452;
 
 const elements = {
     updatedAt: document.querySelector("#updatedAt"),
@@ -195,18 +200,147 @@ function formatAge(value) {
     return `${Math.floor(elapsedMinutes / 60)}시간 전`;
 }
 
-function projectPoint(latitude, longitude, bounds) {
-    const lat = Number(latitude);
-    const lng = Number(longitude);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-        return null;
+function numericOrder(value) {
+    if (value === null || value === undefined || value === "") {
+        return Number.MAX_SAFE_INTEGER;
     }
 
-    const xRatio = (lng - bounds.minLongitude) / (bounds.maxLongitude - bounds.minLongitude);
-    const yRatio = 1 - ((lat - bounds.minLatitude) / (bounds.maxLatitude - bounds.minLatitude));
-    const x = Math.min(mapWidth, Math.max(0, xRatio * mapWidth));
-    const y = Math.min(mapHeight, Math.max(0, yRatio * mapHeight));
-    return {x, y};
+    const number = Number(value);
+    return Number.isFinite(number) ? number : Number.MAX_SAFE_INTEGER;
+}
+
+function normalizedRouteStops(route) {
+    return [...(Array.isArray(route.stops) ? route.stops : [])].sort((left, right) => {
+        const orderDiff = numericOrder(left.nodeOrder) - numericOrder(right.nodeOrder);
+        if (orderDiff !== 0) {
+            return orderDiff;
+        }
+
+        return String(left.sourceNodeId || "").localeCompare(String(right.sourceNodeId || ""));
+    });
+}
+
+function routeLaneY(index, total) {
+    if (total <= 1) {
+        return mapHeight / 2;
+    }
+
+    const usableHeight = mapHeight - metroTopY - metroBottomY;
+    const gap = Math.min(metroMaxRouteGap, usableHeight / (total - 1));
+    return metroTopY + (gap * index);
+}
+
+function buildMetroRouteLayouts(routes) {
+    const total = Math.max(routes.length, 1);
+    return routes.map((route, routeIndex) => {
+        const stops = normalizedRouteStops(route);
+        const usableWidth = mapWidth - (metroPaddingX * 2);
+        const baseY = routeLaneY(routeIndex, total);
+        const slope = [0, 34, -34, 20, -20, 42, -42, 12][routeIndex % 8];
+        const stopPoints = stops.map((stop, stopIndex) => {
+            const ratio = stops.length <= 1 ? 0.5 : stopIndex / (stops.length - 1);
+            return {
+                route,
+                routeIndex,
+                stop,
+                stopIndex,
+                order: numericOrder(stop.nodeOrder),
+                x: metroPaddingX + (usableWidth * ratio),
+                y: Math.min(mapHeight - 48, Math.max(48, baseY + ((ratio - 0.5) * slope)))
+            };
+        });
+
+        return {
+            route,
+            routeIndex,
+            color: routeColor(routeIndex),
+            stopPoints
+        };
+    });
+}
+
+function routeLabelWidth(label) {
+    return Math.max(36, Math.min(78, String(label || "").length * 10 + 18));
+}
+
+function routeBadge(point, route, color, side = "start") {
+    const label = route.routeNo || route.sourceRouteId || "-";
+    const width = routeLabelWidth(label);
+    const x = side === "start" ? -width - 14 : 14;
+
+    return `
+        <g class="route-label" transform="translate(${point.x.toFixed(1)} ${point.y.toFixed(1)})">
+            <rect x="${x}" y="-11" width="${width}" height="22" rx="11" fill="${color}"></rect>
+            <text x="${x + (width / 2)}" y="4" text-anchor="middle">${escapeHtml(label)}</text>
+        </g>
+    `;
+}
+
+function sampledPathPoints(stopPoints) {
+    if (stopPoints.length <= 14) {
+        return stopPoints;
+    }
+
+    const interval = Math.max(1, Math.floor(stopPoints.length / 12));
+    return stopPoints.filter((point, index) =>
+        index === 0 || index === stopPoints.length - 1 || index % interval === 0
+    );
+}
+
+function buildStopUseCounts(routeLayouts) {
+    return routeLayouts.reduce((counts, layout) => {
+        const routeStopIds = new Set(
+            layout.stopPoints
+                .map((point) => point.stop.sourceNodeId)
+                .filter(Boolean)
+        );
+        routeStopIds.forEach((sourceNodeId) => counts.set(sourceNodeId, (counts.get(sourceNodeId) || 0) + 1));
+        return counts;
+    }, new Map());
+}
+
+function hashValue(value) {
+    return String(value || "").split("").reduce((hash, character) => {
+        return ((hash << 5) - hash) + character.charCodeAt(0);
+    }, 0);
+}
+
+function vehicleMetroPoint(vehicle, routeLayouts, vehicleIndex) {
+    const layout = routeLayouts.find((item) => item.route.sourceRouteId === vehicle.sourceRouteId);
+    if (!layout || layout.stopPoints.length === 0) {
+        const visibleIndex = vehicleIndex % 18;
+        return {
+            x: metroPaddingX + (visibleIndex * 58),
+            y: unmatchedVehicleLaneY - ((Math.floor(vehicleIndex / 18) % 2) * 24),
+            unmatched: true
+        };
+    }
+
+    const nodeOrder = numericOrder(vehicle.nodeOrder);
+    let anchor = null;
+    if (nodeOrder !== Number.MAX_SAFE_INTEGER) {
+        anchor = layout.stopPoints.reduce((closest, candidate) => {
+            if (!closest) {
+                return candidate;
+            }
+            return Math.abs(candidate.order - nodeOrder) < Math.abs(closest.order - nodeOrder)
+                ? candidate
+                : closest;
+        }, null);
+    }
+
+    if (!anchor && vehicle.sourceNodeId) {
+        anchor = layout.stopPoints.find((point) => point.stop.sourceNodeId === vehicle.sourceNodeId);
+    }
+
+    const fallback = layout.stopPoints[Math.floor(layout.stopPoints.length / 2)];
+    const stackOffset = ((Math.abs(hashValue(vehicle.vehicleNo || vehicleIndex)) % 5) - 2) * 5;
+    const yOffset = selectedRouteId === "all" ? -15 : -20;
+    const point = anchor || fallback;
+    return {
+        x: point.x,
+        y: point.y + yOffset + stackOffset
+    };
 }
 
 function renderMetrics(status) {
@@ -223,7 +357,6 @@ function renderTransitMap(payload) {
     cachedMap = payload;
     const routes = Array.isArray(payload.routes) ? payload.routes : [];
     const vehicles = Array.isArray(payload.vehicles) ? payload.vehicles : [];
-    const bounds = payload.bounds;
     const selectedRoute = selectedRouteId === "all"
         ? null
         : routes.find((route) => route.sourceRouteId === selectedRouteId);
@@ -240,9 +373,10 @@ function renderTransitMap(payload) {
     elements.mapEmptyState.classList.toggle("show", routes.length === 0 && vehicles.length === 0);
 
     renderRouteFilters(routes, vehicles);
-    renderRouteLayer(routes, bounds);
-    renderStopLayer(routes, bounds);
-    renderVehicleLayer(vehicles, bounds);
+    const routeLayouts = buildMetroRouteLayouts(routes);
+    renderRouteLayer(routeLayouts);
+    renderStopLayer(routeLayouts);
+    renderVehicleLayer(vehicles, routeLayouts);
     renderVehicleFeed(vehicles);
 }
 
@@ -270,12 +404,10 @@ function renderRouteFilters(routes, vehicles) {
     `;
 }
 
-function renderRouteLayer(routes, bounds) {
-    elements.routeLayer.innerHTML = routes.map((route, index) => {
-        const points = route.stops
-            .map((stop) => projectPoint(stop.latitude, stop.longitude, bounds))
-            .filter(Boolean);
-        if (points.length < 2) {
+function renderRouteLayer(routeLayouts) {
+    elements.routeLayer.innerHTML = routeLayouts.map((layout) => {
+        const {route, color, stopPoints} = layout;
+        if (stopPoints.length < 2) {
             return "";
         }
 
@@ -286,51 +418,83 @@ function renderRouteLayer(routes, bounds) {
             selected ? "is-selected" : "",
             muted ? "is-muted" : ""
         ].filter(Boolean).join(" ");
-        const pointText = points.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
+        const pointText = sampledPathPoints(stopPoints)
+            .map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`)
+            .join(" ");
+        const firstPoint = stopPoints[0];
+        const lastPoint = stopPoints[stopPoints.length - 1];
         return `
-            <polyline class="${classes}" points="${pointText}" stroke="${routeColor(index)}" stroke-width="5">
-                <title>${escapeHtml(route.routeNo || route.sourceRouteId)} ${escapeHtml(route.startNodeName || "")} - ${escapeHtml(route.endNodeName || "")}</title>
-            </polyline>
+            <g class="route-track${muted ? " is-muted" : ""}${selected ? " is-selected" : ""}">
+                <polyline class="${classes}" points="${pointText}" stroke="${color}">
+                    <title>${escapeHtml(route.routeNo || route.sourceRouteId)} ${escapeHtml(route.startNodeName || "")} - ${escapeHtml(route.endNodeName || "")}</title>
+                </polyline>
+                ${routeBadge(firstPoint, route, color)}
+                ${selected ? routeBadge(lastPoint, route, color, "end") : ""}
+            </g>
         `;
     }).join("");
 }
 
-function renderStopLayer(routes, bounds) {
-    const stopRoutes = selectedRouteId === "all"
-        ? routes.filter((route) => route.stops.length > 0).slice(0, 4)
-        : routes.filter((route) => route.sourceRouteId === selectedRouteId);
+function renderStopLayer(routeLayouts) {
+    const stopUseCounts = buildStopUseCounts(routeLayouts);
+    const visibleLayouts = selectedRouteId === "all"
+        ? routeLayouts
+        : routeLayouts.filter((layout) => layout.route.sourceRouteId === selectedRouteId);
 
-    elements.stopLayer.innerHTML = stopRoutes.flatMap((route) => route.stops).slice(0, 220).map((stop) => {
-        const point = projectPoint(stop.latitude, stop.longitude, bounds);
-        if (!point) {
-            return "";
-        }
-        return `
-            <circle class="stop-dot" cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="4">
-                <title>${escapeHtml(stop.nodeName || stop.sourceNodeId)} · 순번 ${escapeHtml(stop.nodeOrder ?? "-")}</title>
-            </circle>
-        `;
+    elements.stopLayer.innerHTML = visibleLayouts.flatMap((layout) => {
+        const selected = selectedRouteId === layout.route.sourceRouteId;
+        const muted = selectedRouteId !== "all" && !selected;
+        const interval = selected
+            ? Math.max(1, Math.ceil(layout.stopPoints.length / 72))
+            : Math.max(1, Math.ceil(layout.stopPoints.length / 26));
+
+        return layout.stopPoints.map((point, index) => {
+            const sourceNodeId = point.stop.sourceNodeId;
+            const interchange = sourceNodeId && stopUseCounts.get(sourceNodeId) > 1;
+            const terminal = index === 0 || index === layout.stopPoints.length - 1;
+            const showDot = selected || terminal || interchange || index % interval === 0;
+            if (!showDot) {
+                return "";
+            }
+
+            const labelInterval = Math.max(1, Math.ceil(layout.stopPoints.length / 10));
+            const showLabel = selected && (terminal || interchange || index % labelInterval === 0);
+            const classes = [
+                "stop-dot",
+                interchange ? "is-interchange" : "",
+                muted ? "is-muted" : ""
+            ].filter(Boolean).join(" ");
+            return `
+                <g class="stop-node">
+                    <circle class="${classes}" cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="${interchange ? "5.4" : "3.9"}">
+                        <title>${escapeHtml(point.stop.nodeName || sourceNodeId)} · 순번 ${escapeHtml(point.stop.nodeOrder ?? "-")}</title>
+                    </circle>
+                    ${showLabel ? `<text class="stop-label" x="${point.x.toFixed(1)}" y="${(point.y + 20).toFixed(1)}" text-anchor="middle">${escapeHtml(point.stop.nodeName || sourceNodeId || "-")}</text>` : ""}
+                </g>
+            `;
+        });
     }).join("");
 }
 
-function renderVehicleLayer(vehicles, bounds) {
+function renderVehicleLayer(vehicles, routeLayouts) {
     const visibleVehicles = vehicles
         .filter((vehicle) => selectedRouteId === "all" || vehicle.sourceRouteId === selectedRouteId)
         .slice(0, 180);
 
-    elements.vehicleLayer.innerHTML = visibleVehicles.map((vehicle) => {
-        const point = projectPoint(vehicle.latitude, vehicle.longitude, bounds);
+    elements.vehicleLayer.innerHTML = visibleVehicles.map((vehicle, vehicleIndex) => {
+        const point = vehicleMetroPoint(vehicle, routeLayouts, vehicleIndex);
         if (!point) {
             return "";
         }
         const routeNo = vehicle.routeNo || "-";
+        const freshness = ["normal", "delayed", "stale"].includes(vehicle.freshness) ? vehicle.freshness : "stale";
         return `
-            <g class="vehicle-marker ${escapeHtml(vehicle.freshness)}" data-route-id="${escapeHtml(vehicle.sourceRouteId)}"
+            <g class="vehicle-marker ${escapeHtml(freshness)}" data-route-id="${escapeHtml(vehicle.sourceRouteId)}"
                transform="translate(${point.x.toFixed(1)} ${point.y.toFixed(1)})">
-                <circle r="14"></circle>
-                <circle class="vehicle-core" r="6"></circle>
-                <text x="18" y="6">${escapeHtml(routeNo)}</text>
-                <title>${escapeHtml(routeNo)}번 ${escapeHtml(vehicle.vehicleNo || "-")} · ${escapeHtml(freshnessLabel(vehicle.freshness))} · ${escapeHtml(formatAge(vehicle.collectedAt))}</title>
+                <circle class="vehicle-halo" r="14"></circle>
+                <path class="vehicle-arrow" d="M -7 -8 L 10 0 L -7 8 Z"></path>
+                <text x="17" y="5">${escapeHtml(routeNo)}</text>
+                <title>${escapeHtml(routeNo)}번 ${escapeHtml(vehicle.vehicleNo || "-")} · ${point.unmatched ? "표시 노선 밖 · " : ""}${escapeHtml(freshnessLabel(vehicle.freshness))} · ${escapeHtml(formatAge(vehicle.collectedAt))}</title>
             </g>
         `;
     }).join("");

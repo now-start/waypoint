@@ -34,10 +34,14 @@ body {
     justify-content: space-between;
 }
 
+.dashboard-header h1 {
+    line-height: 1.18;
+}
+
 .quick-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 6px;
     justify-content: flex-end;
 }
 
@@ -48,8 +52,8 @@ body {
 
 .operations-map-grid {
     display: grid;
-    gap: 16px;
-    grid-template-columns: minmax(0, 1fr) 360px;
+    gap: 14px;
+    grid-template-columns: minmax(0, 1fr) 340px;
 }
 
 .metric-card,
@@ -64,9 +68,9 @@ body {
     text-align: left;
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    min-height: 128px;
-    padding: 18px;
+    gap: 3px;
+    min-height: 78px;
+    padding: 10px 14px;
     width: 100%;
 }
 
@@ -90,7 +94,7 @@ body {
 }
 
 .metric-card strong {
-    font-size: 2rem;
+    font-size: 1.35rem;
     line-height: 1.1;
 }
 
@@ -99,16 +103,16 @@ body {
 }
 
 .map-panel {
-    background: #f8fbfb;
+    background: #f7f9fc;
 }
 
 .panel-header {
     align-items: center;
     border-bottom: 1px solid var(--panel-border);
     display: flex;
-    gap: 16px;
+    gap: 12px;
     justify-content: space-between;
-    padding: 18px 20px;
+    padding: 12px 16px;
 }
 
 .map-header {
@@ -127,11 +131,11 @@ body {
 }
 
 .map-canvas {
-    aspect-ratio: 16 / 9;
+    aspect-ratio: 2.45 / 1;
     background:
-        linear-gradient(135deg, rgba(15, 118, 110, 0.08), rgba(37, 99, 235, 0.05)),
-        #eef4f2;
-    min-height: 420px;
+        linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(232, 238, 246, 0.36)),
+        #f7f9fc;
+    min-height: 315px;
     overflow: hidden;
     position: relative;
 }
@@ -143,77 +147,134 @@ body {
 }
 
 .map-region-label {
-    fill: rgba(29, 36, 51, 0.28);
-    font-size: 34px;
+    fill: rgba(29, 36, 51, 0.32);
+    font-size: 20px;
+    font-weight: 900;
+    letter-spacing: 0;
+}
+
+.metro-zone-line {
+    stroke: #cfd8e3;
+    stroke-dasharray: 4 12;
+    stroke-linecap: round;
+    stroke-width: 1.5;
+}
+
+.unmatched-zone-line {
+    stroke: #d0d5dd;
+    stroke-dasharray: 2 10;
+    stroke-linecap: round;
+    stroke-width: 1.4;
+}
+
+.unmatched-zone-label {
+    fill: #667085;
+    font-size: 12px;
     font-weight: 800;
     letter-spacing: 0;
 }
 
 .route-path {
     fill: none;
-    opacity: 0.72;
+    opacity: 0.9;
     stroke-linecap: round;
     stroke-linejoin: round;
+    stroke-width: 7;
     transition: opacity 0.15s ease, stroke-width 0.15s ease;
 }
 
 .route-path.is-muted {
-    opacity: 0.14;
+    opacity: 0.1;
 }
 
 .route-path.is-selected {
-    opacity: 0.94;
-    stroke-width: 8;
+    opacity: 1;
+    stroke-width: 11;
+}
+
+.route-track.is-muted .route-label {
+    opacity: 0.18;
+}
+
+.route-label text {
+    fill: #fff;
+    font-size: 12px;
+    font-weight: 900;
+    pointer-events: none;
+}
+
+.route-label rect {
+    filter: drop-shadow(0 4px 8px rgba(16, 24, 40, 0.16));
 }
 
 .stop-dot {
     fill: #fff;
-    opacity: 0.92;
-    stroke: #6b7b8c;
-    stroke-width: 2;
+    opacity: 0.98;
+    stroke: #344054;
+    stroke-width: 1.8;
+}
+
+.stop-dot.is-muted {
+    opacity: 0.2;
+}
+
+.stop-dot.is-interchange {
+    fill: #101828;
+    stroke: #fff;
+    stroke-width: 2.4;
+}
+
+.stop-label {
+    fill: #344054;
+    font-size: 11px;
+    font-weight: 800;
+    paint-order: stroke;
+    stroke: #fff;
+    stroke-width: 4;
 }
 
 .vehicle-marker {
     cursor: pointer;
 }
 
-.vehicle-marker circle {
+.vehicle-halo {
     fill: #fff;
-    stroke-width: 4;
+    stroke-width: 3.5;
 }
 
-.vehicle-marker .vehicle-core {
+.vehicle-arrow {
     stroke: #fff;
+    stroke-linejoin: round;
     stroke-width: 2;
 }
 
-.vehicle-marker.normal circle {
+.vehicle-marker.normal .vehicle-halo {
     stroke: var(--normal);
 }
 
-.vehicle-marker.normal .vehicle-core {
+.vehicle-marker.normal .vehicle-arrow {
     fill: var(--normal);
 }
 
-.vehicle-marker.delayed circle {
+.vehicle-marker.delayed .vehicle-halo {
     stroke: var(--delayed);
 }
 
-.vehicle-marker.delayed .vehicle-core {
+.vehicle-marker.delayed .vehicle-arrow {
     fill: var(--delayed);
 }
 
-.vehicle-marker.stale circle {
+.vehicle-marker.stale .vehicle-halo {
     stroke: var(--stale);
 }
 
-.vehicle-marker.stale .vehicle-core {
+.vehicle-marker.stale .vehicle-arrow {
     fill: var(--stale);
 }
 
 .vehicle-marker text {
     fill: var(--control);
-    font-size: 18px;
+    font-size: 16px;
     font-weight: 800;
     paint-order: stroke;
     stroke: #fff;
@@ -245,7 +306,7 @@ body {
 
 .map-sidebar-section {
     border-bottom: 1px solid var(--panel-border);
-    padding: 16px;
+    padding: 11px 12px;
 }
 
 .map-sidebar-section:last-child {
@@ -263,7 +324,7 @@ body {
 
 .map-stat-grid {
     display: grid;
-    gap: 10px;
+    gap: 8px;
     grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
@@ -272,7 +333,7 @@ body {
     border: 1px solid var(--panel-border);
     border-radius: 8px;
     min-width: 0;
-    padding: 12px;
+    padding: 8px 9px;
 }
 
 .map-stat span {
@@ -292,7 +353,9 @@ body {
 .route-filter-list {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 6px;
+    max-height: 104px;
+    overflow: auto;
 }
 
 .route-filter {
@@ -302,11 +365,11 @@ body {
     border-radius: 999px;
     color: var(--ink);
     display: inline-flex;
-    font-size: 0.84rem;
+    font-size: 0.8rem;
     font-weight: 800;
     gap: 6px;
-    min-height: 34px;
-    padding: 6px 10px;
+    min-height: 30px;
+    padding: 5px 9px;
 }
 
 .route-filter::before {
@@ -329,8 +392,8 @@ body {
 
 .vehicle-feed {
     display: grid;
-    gap: 10px;
-    max-height: 310px;
+    gap: 8px;
+    max-height: 144px;
     overflow: auto;
 }
 
@@ -338,7 +401,7 @@ body {
     background: #fff;
     border: 1px solid var(--panel-border);
     border-radius: 8px;
-    padding: 12px;
+    padding: 10px;
 }
 
 .vehicle-item header {
@@ -346,7 +409,7 @@ body {
     display: flex;
     gap: 10px;
     justify-content: space-between;
-    margin-bottom: 6px;
+    margin-bottom: 4px;
 }
 
 .vehicle-route {
@@ -530,7 +593,7 @@ body {
     }
 
     .map-canvas {
-        min-height: 360px;
+        min-height: 320px;
     }
 }
 
