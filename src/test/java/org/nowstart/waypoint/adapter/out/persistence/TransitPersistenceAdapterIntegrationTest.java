@@ -1,5 +1,6 @@
 package org.nowstart.waypoint.adapter.out.persistence;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.nowstart.waypoint.adapter.out.persistence.entity.BusRouteEntity;
@@ -7,6 +8,7 @@ import org.nowstart.waypoint.adapter.out.persistence.repository.BusRouteJpaRepos
 import org.nowstart.waypoint.adapter.out.persistence.repository.BusStopJpaRepository;
 import org.nowstart.waypoint.adapter.out.persistence.repository.RouteStopJpaRepository;
 import org.nowstart.waypoint.application.port.out.LoadTagoRoutePort;
+import org.nowstart.waypoint.application.port.out.LoadTransitDataPort;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
@@ -53,6 +55,13 @@ class TransitPersistenceAdapterIntegrationTest {
     static class PersistenceTestConfiguration {
     }
 
+    @BeforeEach
+    void cleanDatabase() {
+        routeStopRepository.deleteAll();
+        busStopRepository.deleteAll();
+        busRouteRepository.deleteAll();
+    }
+
     @Test
     @DisplayName("중복 노선 입력은 하나로 합쳐 JPA 일괄 저장한다")
     void saveRoutesCoalescesDuplicateSourceRouteIds() {
@@ -96,6 +105,35 @@ class TransitPersistenceAdapterIntegrationTest {
         assertThat(routeStopRepository.findAll()).hasSize(3);
     }
 
+    @Test
+    @DisplayName("지도 경로 조회는 좌표 있는 경유 정류소만 노선과 순번 순서로 반환한다")
+    void loadRoutePathStopsReturnsOrderedCoordinateStops() {
+        // given: 두 노선의 경유 정류소와 좌표 없는 정류소가 저장되어 있다
+        String cityCode = "39000";
+        adapter.saveRoutes(cityCode, List.of(route("CWB200", "200"), route("CWB100", "100")));
+        adapter.saveRouteStops(cityCode, "CWB200", List.of(
+                routeStop("CWS2002", 2, 35.12, 128.62),
+                routeStop("CWS2001", 1, 35.11, 128.61)
+        ));
+        adapter.saveRouteStops(cityCode, "CWB100", List.of(
+                routeStop("CWS1001", 1, 35.21, 128.71),
+                routeStop("CWS1002", 2, null, null)
+        ));
+
+        // when: 지도 경로 정류소를 조회한다
+        List<LoadTransitDataPort.RoutePathStopReference> rows = adapter.loadRoutePathStops(cityCode, 10);
+        List<LoadTransitDataPort.RoutePathStopReference> limitedRows = adapter.loadRoutePathStops(cityCode, 2);
+
+        // then: 좌표 없는 정류소는 제외하고 routeNo, sourceRouteId, nodeOrder 순서로 반환한다
+        assertThat(rows).extracting(LoadTransitDataPort.RoutePathStopReference::sourceNodeId)
+                .containsExactly("CWS1001", "CWS2001", "CWS2002");
+        assertThat(rows.getFirst().routeNo()).isEqualTo("100");
+        assertThat(rows.getFirst().gpsLatitude()).isEqualTo(35.21);
+        assertThat(limitedRows).hasSize(2);
+        assertThat(limitedRows).extracting(LoadTransitDataPort.RoutePathStopReference::sourceNodeId)
+                .containsExactly("CWS1001", "CWS2001");
+    }
+
     private static LoadTagoRoutePort.TagoRoute route(String sourceRouteId, String routeNo) {
         return new LoadTagoRoutePort.TagoRoute(
                 sourceRouteId,
@@ -112,13 +150,22 @@ class TransitPersistenceAdapterIntegrationTest {
     }
 
     private static LoadTagoRoutePort.TagoRouteStop routeStop(String sourceNodeId, int nodeOrder) {
+        return routeStop(sourceNodeId, nodeOrder, 35.1, 128.1);
+    }
+
+    private static LoadTagoRoutePort.TagoRouteStop routeStop(
+            String sourceNodeId,
+            int nodeOrder,
+            Double latitude,
+            Double longitude
+    ) {
         return new LoadTagoRoutePort.TagoRouteStop(
                 sourceNodeId,
                 "100",
                 "정류장",
                 nodeOrder,
-                35.1,
-                128.1
+                latitude,
+                longitude
         );
     }
 }

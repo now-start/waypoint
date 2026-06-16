@@ -282,6 +282,29 @@ public class TransitPersistenceAdapter implements SaveTransitDataPort, LoadTrans
 
     @Override
     @Transactional(readOnly = true)
+    public List<RoutePathStopReference> loadRoutePathStops(String cityCode, int limit) {
+        return routeStopRepository.findMapPathStopsByCityCode(
+                        cityCode,
+                        PageRequest.of(0, Math.max(1, limit))
+                ).stream()
+                .map(stop -> new RoutePathStopReference(
+                        stop.getSourceRouteId(),
+                        stop.getRouteNo(),
+                        stop.getRouteType(),
+                        stop.getStartNodeName(),
+                        stop.getEndNodeName(),
+                        stop.getSourceNodeId(),
+                        stop.getNodeName(),
+                        stop.getNodeOrder(),
+                        stop.getGpsLatitude(),
+                        stop.getGpsLongitude(),
+                        stop.getLastArrivalCollectedAt()
+                ))
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public List<LocationSnapshotReference> loadRecentLocationSnapshots(String cityCode, Instant since, int limit) {
         return locationSnapshotRepository.findRecentByCityCode(cityCode, since, PageRequest.of(0, Math.max(1, limit))).stream()
                 .map(snapshot -> new LocationSnapshotReference(

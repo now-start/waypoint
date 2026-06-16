@@ -4,9 +4,13 @@ window.baseUrl = baseUrl;
 const statusEndpoint = "api/collections/status";
 const runsEndpoint = "api/collections/runs?limit=20";
 const anomaliesEndpoint = "api/anomalies";
+const mapEndpoint = "api/operations/map";
 const refreshIntervalSeconds = 30;
 const detailSliceSize = 50;
 const detailScrollThresholdPx = 80;
+const mapWidth = 1000;
+const mapHeight = 640;
+const routePalette = ["#0f766e", "#2563eb", "#e11d48", "#a16207", "#7c3aed", "#0891b2", "#be123c", "#4d7c0f"];
 
 const elements = {
     updatedAt: document.querySelector("#updatedAt"),
@@ -19,6 +23,16 @@ const elements = {
     arrivalSnapshotCount: document.querySelector("#arrivalSnapshotCount"),
     latestLocationCollectedAt: document.querySelector("#latestLocationCollectedAt"),
     latestArrivalCollectedAt: document.querySelector("#latestArrivalCollectedAt"),
+    mapUpdatedAt: document.querySelector("#mapUpdatedAt"),
+    routeLayer: document.querySelector("#routeLayer"),
+    stopLayer: document.querySelector("#stopLayer"),
+    vehicleLayer: document.querySelector("#vehicleLayer"),
+    mapEmptyState: document.querySelector("#mapEmptyState"),
+    mapRouteCount: document.querySelector("#mapRouteCount"),
+    mapVehicleCount: document.querySelector("#mapVehicleCount"),
+    mapDelayedVehicleCount: document.querySelector("#mapDelayedVehicleCount"),
+    routeFilterList: document.querySelector("#routeFilterList"),
+    vehicleFeed: document.querySelector("#vehicleFeed"),
     anomalyBody: document.querySelector("#anomalyBody"),
     anomalyCount: document.querySelector("#anomalyCount"),
     runsBody: document.querySelector("#runsBody"),
@@ -37,9 +51,11 @@ const elements = {
 
 let cachedRuns = [];
 let cachedAnomalies = [];
+let cachedMap = null;
 let refreshTimerId;
 let secondsUntilRefresh = refreshIntervalSeconds;
 let detailState = null;
+let selectedRouteId = "all";
 
 function normalizeBaseUrl(value) {
     if (!value) {
@@ -149,6 +165,50 @@ function escapeHtml(value) {
     })[character]);
 }
 
+function routeColor(index) {
+    return routePalette[index % routePalette.length];
+}
+
+function freshnessLabel(value) {
+    if (value === "normal") {
+        return "정상";
+    }
+    if (value === "delayed") {
+        return "지연";
+    }
+    return "오래됨";
+}
+
+function formatAge(value) {
+    if (!value) {
+        return "-";
+    }
+
+    const elapsedSeconds = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 1000));
+    if (elapsedSeconds < 60) {
+        return `${elapsedSeconds}초 전`;
+    }
+    const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+    if (elapsedMinutes < 60) {
+        return `${elapsedMinutes}분 전`;
+    }
+    return `${Math.floor(elapsedMinutes / 60)}시간 전`;
+}
+
+function projectPoint(latitude, longitude, bounds) {
+    const lat = Number(latitude);
+    const lng = Number(longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        return null;
+    }
+
+    const xRatio = (lng - bounds.minLongitude) / (bounds.maxLongitude - bounds.minLongitude);
+    const yRatio = 1 - ((lat - bounds.minLatitude) / (bounds.maxLatitude - bounds.minLatitude));
+    const x = Math.min(mapWidth, Math.max(0, xRatio * mapWidth));
+    const y = Math.min(mapHeight, Math.max(0, yRatio * mapHeight));
+    return {x, y};
+}
+
 function renderMetrics(status) {
     elements.routeCount.textContent = formatNumber(status.routeCount);
     elements.stopCount.textContent = formatNumber(status.stopCount);
@@ -157,6 +217,161 @@ function renderMetrics(status) {
     elements.arrivalSnapshotCount.textContent = formatNumber(status.arrivalSnapshotCount);
     elements.latestLocationCollectedAt.textContent = `최근 ${formatDateTime(status.latestLocationCollectedAt)}`;
     elements.latestArrivalCollectedAt.textContent = `최근 ${formatDateTime(status.latestArrivalCollectedAt)}`;
+}
+
+function renderTransitMap(payload) {
+    cachedMap = payload;
+    const routes = Array.isArray(payload.routes) ? payload.routes : [];
+    const vehicles = Array.isArray(payload.vehicles) ? payload.vehicles : [];
+    const bounds = payload.bounds;
+    const selectedRoute = selectedRouteId === "all"
+        ? null
+        : routes.find((route) => route.sourceRouteId === selectedRouteId);
+
+    if (selectedRouteId !== "all" && !selectedRoute) {
+        selectedRouteId = "all";
+    }
+
+    elements.mapUpdatedAt.textContent = `지도 기준 ${formatDateTime(payload.generatedAt)}`;
+    elements.mapRouteCount.textContent = formatNumber(payload.summary?.routeCount ?? routes.length);
+    elements.mapVehicleCount.textContent = formatNumber(payload.summary?.vehicleCount ?? vehicles.length);
+    elements.mapDelayedVehicleCount.textContent = formatNumber(payload.summary?.delayedVehicleCount ?? 0);
+    elements.mapEmptyState.textContent = "지도에 표시할 노선 또는 차량 위치 데이터가 없습니다.";
+    elements.mapEmptyState.classList.toggle("show", routes.length === 0 && vehicles.length === 0);
+
+    renderRouteFilters(routes, vehicles);
+    renderRouteLayer(routes, bounds);
+    renderStopLayer(routes, bounds);
+    renderVehicleLayer(vehicles, bounds);
+    renderVehicleFeed(vehicles);
+}
+
+function renderRouteFilters(routes, vehicles) {
+    const routeVehicleCounts = vehicles.reduce((counts, vehicle) => {
+        counts.set(vehicle.sourceRouteId, (counts.get(vehicle.sourceRouteId) || 0) + 1);
+        return counts;
+    }, new Map());
+    const routeButtons = routes.map((route, index) => {
+        const vehicleCount = routeVehicleCounts.get(route.sourceRouteId) || 0;
+        const activeClass = selectedRouteId === route.sourceRouteId ? " active" : "";
+        return `
+            <button class="route-filter${activeClass}" data-route-id="${escapeHtml(route.sourceRouteId)}"
+                    style="--route-color: ${routeColor(index)}" type="button">
+                ${escapeHtml(route.routeNo || route.sourceRouteId)}
+                <span class="text-secondary">${escapeHtml(vehicleCount)}대</span>
+            </button>
+        `;
+    }).join("");
+
+    const allActiveClass = selectedRouteId === "all" ? " active" : "";
+    elements.routeFilterList.innerHTML = `
+        <button class="route-filter${allActiveClass}" data-route-id="all" style="--route-color: #344054" type="button">전체</button>
+        ${routeButtons || `<span class="text-secondary small">표시할 노선이 없습니다.</span>`}
+    `;
+}
+
+function renderRouteLayer(routes, bounds) {
+    elements.routeLayer.innerHTML = routes.map((route, index) => {
+        const points = route.stops
+            .map((stop) => projectPoint(stop.latitude, stop.longitude, bounds))
+            .filter(Boolean);
+        if (points.length < 2) {
+            return "";
+        }
+
+        const selected = selectedRouteId === route.sourceRouteId;
+        const muted = selectedRouteId !== "all" && !selected;
+        const classes = [
+            "route-path",
+            selected ? "is-selected" : "",
+            muted ? "is-muted" : ""
+        ].filter(Boolean).join(" ");
+        const pointText = points.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
+        return `
+            <polyline class="${classes}" points="${pointText}" stroke="${routeColor(index)}" stroke-width="5">
+                <title>${escapeHtml(route.routeNo || route.sourceRouteId)} ${escapeHtml(route.startNodeName || "")} - ${escapeHtml(route.endNodeName || "")}</title>
+            </polyline>
+        `;
+    }).join("");
+}
+
+function renderStopLayer(routes, bounds) {
+    const stopRoutes = selectedRouteId === "all"
+        ? routes.filter((route) => route.stops.length > 0).slice(0, 4)
+        : routes.filter((route) => route.sourceRouteId === selectedRouteId);
+
+    elements.stopLayer.innerHTML = stopRoutes.flatMap((route) => route.stops).slice(0, 220).map((stop) => {
+        const point = projectPoint(stop.latitude, stop.longitude, bounds);
+        if (!point) {
+            return "";
+        }
+        return `
+            <circle class="stop-dot" cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="4">
+                <title>${escapeHtml(stop.nodeName || stop.sourceNodeId)} · 순번 ${escapeHtml(stop.nodeOrder ?? "-")}</title>
+            </circle>
+        `;
+    }).join("");
+}
+
+function renderVehicleLayer(vehicles, bounds) {
+    const visibleVehicles = vehicles
+        .filter((vehicle) => selectedRouteId === "all" || vehicle.sourceRouteId === selectedRouteId)
+        .slice(0, 180);
+
+    elements.vehicleLayer.innerHTML = visibleVehicles.map((vehicle) => {
+        const point = projectPoint(vehicle.latitude, vehicle.longitude, bounds);
+        if (!point) {
+            return "";
+        }
+        const routeNo = vehicle.routeNo || "-";
+        return `
+            <g class="vehicle-marker ${escapeHtml(vehicle.freshness)}" data-route-id="${escapeHtml(vehicle.sourceRouteId)}"
+               transform="translate(${point.x.toFixed(1)} ${point.y.toFixed(1)})">
+                <circle r="14"></circle>
+                <circle class="vehicle-core" r="6"></circle>
+                <text x="18" y="6">${escapeHtml(routeNo)}</text>
+                <title>${escapeHtml(routeNo)}번 ${escapeHtml(vehicle.vehicleNo || "-")} · ${escapeHtml(freshnessLabel(vehicle.freshness))} · ${escapeHtml(formatAge(vehicle.collectedAt))}</title>
+            </g>
+        `;
+    }).join("");
+}
+
+function renderVehicleFeed(vehicles) {
+    const visibleVehicles = vehicles
+        .filter((vehicle) => selectedRouteId === "all" || vehicle.sourceRouteId === selectedRouteId)
+        .slice(0, 8);
+
+    if (visibleVehicles.length === 0) {
+        elements.vehicleFeed.innerHTML = `<div class="empty-state">표시할 차량 위치가 없습니다.</div>`;
+        return;
+    }
+
+    elements.vehicleFeed.innerHTML = visibleVehicles.map((vehicle) => `
+        <article class="vehicle-item">
+            <header>
+                <span class="vehicle-route">${escapeHtml(vehicle.routeNo || "-")}번 · ${escapeHtml(vehicle.vehicleNo || "-")}</span>
+                <span class="freshness-pill freshness-${escapeHtml(vehicle.freshness)}">${escapeHtml(freshnessLabel(vehicle.freshness))}</span>
+            </header>
+            <div class="text-secondary small">
+                순번 ${escapeHtml(vehicle.nodeOrder ?? "-")} · 정류소 ${escapeHtml(vehicle.sourceNodeId || "-")} · ${escapeHtml(formatAge(vehicle.collectedAt))}
+            </div>
+        </article>
+    `).join("");
+}
+
+function renderMapLoadError(error) {
+    cachedMap = null;
+    elements.mapUpdatedAt.textContent = "지도 조회 실패";
+    elements.mapRouteCount.textContent = "0";
+    elements.mapVehicleCount.textContent = "0";
+    elements.mapDelayedVehicleCount.textContent = "0";
+    elements.routeLayer.innerHTML = "";
+    elements.stopLayer.innerHTML = "";
+    elements.vehicleLayer.innerHTML = "";
+    elements.routeFilterList.innerHTML = `<span class="text-secondary small">지도 API 연결을 확인하세요.</span>`;
+    elements.vehicleFeed.innerHTML = `<div class="empty-state">차량 위치를 불러오지 못했습니다.</div>`;
+    elements.mapEmptyState.textContent = `지도 데이터를 불러오지 못했습니다: ${error.message}`;
+    elements.mapEmptyState.classList.add("show");
 }
 
 function renderRuns(runs) {
@@ -501,18 +716,29 @@ function handleDetailScroll() {
 }
 
 async function loadDashboard() {
-    const [status, runs, anomalies] = await Promise.all([
+    const [status, runs, anomalies, transitMap] = await Promise.allSettled([
         fetchJson(statusEndpoint),
         fetchJson(runsEndpoint),
-        fetchJson(anomaliesEndpoint)
+        fetchJson(anomaliesEndpoint),
+        fetchJson(mapEndpoint)
     ]);
 
-    cachedRuns = runs;
-    cachedAnomalies = Array.isArray(anomalies) ? anomalies : [];
-    renderMetrics(status);
+    if (status.status === "rejected" || runs.status === "rejected" || anomalies.status === "rejected") {
+        throw status.reason || runs.reason || anomalies.reason;
+    }
+
+    cachedRuns = runs.value;
+    cachedAnomalies = Array.isArray(anomalies.value) ? anomalies.value : [];
+    renderMetrics(status.value);
+    if (transitMap.status === "fulfilled") {
+        renderTransitMap(transitMap.value);
+    } else {
+        renderMapLoadError(transitMap.reason);
+        showToast(`지도 조회 실패: ${transitMap.reason.message}`);
+    }
     renderAnomalies(cachedAnomalies);
-    renderRuns(runs);
-    renderCollectionIssues(runs);
+    renderRuns(runs.value);
+    renderCollectionIssues(runs.value);
     elements.updatedAt.textContent = `기준 ${formatDateTime(new Date())}`;
 }
 
@@ -560,6 +786,26 @@ document.querySelectorAll("[data-collect-url]").forEach((button) => {
 
 document.querySelector("#briefingButton").addEventListener("click", renderBriefing);
 
+elements.routeFilterList.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-route-id]");
+    if (!button || !cachedMap) {
+        return;
+    }
+
+    selectedRouteId = button.dataset.routeId;
+    renderTransitMap(cachedMap);
+});
+
+elements.vehicleLayer.addEventListener("click", (event) => {
+    const marker = event.target.closest("[data-route-id]");
+    if (!marker || !cachedMap) {
+        return;
+    }
+
+    selectedRouteId = marker.dataset.routeId;
+    renderTransitMap(cachedMap);
+});
+
 document.querySelectorAll("[data-detail-type]").forEach((button) => {
     button.addEventListener("click", () => openDetail(button));
 });
@@ -570,6 +816,7 @@ elements.detailModalBody.addEventListener("scroll", handleDetailScroll);
 startAutoRefresh();
 
 loadDashboard().catch((error) => {
+    elements.mapEmptyState.classList.add("show");
     renderAnomalies(cachedAnomalies);
     elements.runsBody.innerHTML = `<tr><td class="empty-state" colspan="6">대시보드 데이터를 불러오지 못했습니다.</td></tr>`;
     elements.collectionIssueList.innerHTML = `<div class="empty-state">API 연결을 확인하세요.</div>`;
