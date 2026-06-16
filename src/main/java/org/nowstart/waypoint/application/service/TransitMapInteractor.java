@@ -19,10 +19,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class TransitMapInteractor implements QueryTransitMapUseCase {
 
-    private static final int MAX_ROUTE_PATH_ROWS = 20_000;
-    private static final int MAX_MAP_ROUTES = 24;
-    private static final int MAX_LOCATION_SNAPSHOTS = 2_000;
-    private static final int MAX_MAP_VEHICLES = 180;
+    private static final int MAX_ROUTE_PATH_ROWS = 100_000;
+    private static final int MAX_LOCATION_SNAPSHOTS = 10_000;
     private static final Duration LOCATION_LOOKBACK = Duration.ofMinutes(45);
     private static final Duration LOCATION_NORMAL_THRESHOLD = Duration.ofMinutes(2);
     private static final Duration LOCATION_DELAYED_THRESHOLD = Duration.ofMinutes(5);
@@ -72,7 +70,6 @@ public class TransitMapInteractor implements QueryTransitMapUseCase {
                         .comparing((List<LoadTransitDataPort.RoutePathStopReference> stops) ->
                                 !activeRouteIds.contains(stops.getFirst().sourceRouteId()))
                         .thenComparing(stops -> routeNo(stops.getFirst())))
-                .limit(MAX_MAP_ROUTES)
                 .map(this::toMapRoute)
                 .toList();
     }
@@ -120,7 +117,6 @@ public class TransitMapInteractor implements QueryTransitMapUseCase {
                         .comparing(LoadTransitDataPort.LocationSnapshotReference::collectedAt).reversed()
                         .thenComparing(LoadTransitDataPort.LocationSnapshotReference::routeNo, Comparator.nullsLast(String::compareTo))
                         .thenComparing(LoadTransitDataPort.LocationSnapshotReference::vehicleNo, Comparator.nullsLast(String::compareTo)))
-                .limit(MAX_MAP_VEHICLES)
                 .map(snapshot -> toMapVehicle(snapshot, now))
                 .toList();
     }

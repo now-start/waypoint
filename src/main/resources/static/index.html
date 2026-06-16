@@ -43,12 +43,21 @@
     </div>
 </nav>
 
-<main class="container-fluid px-4 py-3">
+<main class="container-fluid px-4 py-3 dashboard-shell">
     <section class="dashboard-header mb-2">
         <div>
             <p class="text-uppercase text-primary fw-semibold small mb-1">Changwon Transit Operations</p>
             <h1 class="h4 fw-bold mb-1">창원시 버스 관제 대시보드</h1>
             <p class="text-secondary small mb-0">노선, 정류장, 차량 위치, 갱신 지연 상태를 함께 확인합니다.</p>
+        </div>
+        <div class="top-briefing-panel" aria-labelledby="briefingTitle">
+            <div class="top-briefing-copy">
+                <div class="section-label mb-1" id="briefingTitle">AI 브리핑</div>
+                <div id="briefingText" class="top-briefing-text">
+                    현재 수집 상태를 기준으로 주요 확인 대상을 정리합니다.
+                </div>
+            </div>
+            <button class="btn btn-dark btn-sm" id="briefingButton" type="button">생성</button>
         </div>
         <div class="quick-actions">
             <button class="btn btn-primary btn-sm" data-collect-url="api/collections/reference-data" type="button">기준 데이터 수집</button>
@@ -96,17 +105,40 @@
     </section>
 
     <section class="operations-map-grid mb-4" aria-label="창원시 버스 운행 지도">
+        <aside class="panel map-sidebar operations-sidebar">
+            <div class="map-sidebar-section">
+                <div class="sidebar-section-header">
+                    <div>
+                        <div class="section-label">이상징후</div>
+                        <p class="text-secondary small mb-0">우선 확인 대상</p>
+                    </div>
+                    <span class="badge text-bg-light" id="anomalyCount">0건</span>
+                </div>
+                <div class="operations-list" id="anomalyList"></div>
+            </div>
+            <div class="map-sidebar-section">
+                <div class="sidebar-section-header">
+                    <div>
+                        <div class="section-label">최근 수집 실행</div>
+                        <p class="text-secondary small mb-0">최신 실행</p>
+                    </div>
+                    <span class="badge text-bg-light" id="runCount">0건</span>
+                </div>
+                <div class="operations-list" id="runList"></div>
+            </div>
+        </aside>
+
         <div class="panel map-panel">
             <div class="panel-header map-header">
                 <div>
-                    <h2 class="h5 mb-1">창원시 노선도형 운행 맵</h2>
-                    <p class="text-secondary small mb-0">정류장 순서 기준 노선 진행과 차량 갱신 상태</p>
+                    <h2 class="h5 mb-1">창원시 좌표 기반 노선 그래프</h2>
+                    <p class="text-secondary small mb-0">정류장 좌표와 노선 순서를 연결한 차량 위치·갱신 상태</p>
                 </div>
                 <span class="map-timestamp" id="mapUpdatedAt">-</span>
             </div>
             <div class="map-canvas">
                 <svg id="operationMap" viewBox="0 0 1200 490" role="img" aria-labelledby="operationMapTitle">
-                    <title id="operationMapTitle">창원시 버스 노선도형 운행 맵</title>
+                    <title id="operationMapTitle">창원시 좌표 기반 버스 노선 그래프</title>
                     <defs>
                         <pattern id="mapGrid" width="44" height="44" patternUnits="userSpaceOnUse">
                             <path d="M 44 0 L 0 0 0 44" fill="none" stroke="#dde5ee" stroke-width="1"/>
@@ -114,18 +146,22 @@
                     </defs>
                     <rect width="1200" height="490" rx="0" fill="#f7f9fc"/>
                     <rect width="1200" height="490" fill="url(#mapGrid)" opacity="0.55"/>
-                    <line x1="92" y1="96" x2="1108" y2="96" class="metro-zone-line"/>
-                    <line x1="92" y1="248" x2="1108" y2="248" class="metro-zone-line"/>
-                    <line x1="92" y1="400" x2="1108" y2="400" class="metro-zone-line"/>
-                    <line x1="92" y1="452" x2="1108" y2="452" class="unmatched-zone-line"/>
-                    <text x="92" y="48" class="map-region-label">MASAN</text>
-                    <text x="560" y="48" class="map-region-label">CHANGWON</text>
-                    <text x="1000" y="48" class="map-region-label">JINHAE</text>
-                    <text x="92" y="470" class="unmatched-zone-label">표시 노선 밖 차량</text>
+                    <rect x="44" y="34" width="1112" height="404" rx="8" class="graph-frame"/>
+                    <line x1="56" y1="452" x2="1144" y2="452" class="unmatched-zone-line"/>
+                    <text x="86" y="67" class="map-region-label">MASAN</text>
+                    <text x="558" y="67" class="map-region-label">CHANGWON</text>
+                    <text x="1014" y="67" class="map-region-label">JINHAE</text>
+                    <text x="56" y="470" class="unmatched-zone-label">좌표 매칭 실패 차량</text>
                     <g id="routeLayer"></g>
                     <g id="stopLayer"></g>
                     <g id="vehicleLayer"></g>
                 </svg>
+                <div class="map-zoom-controls" aria-label="지도 확대 축소">
+                    <button class="map-tool-button" data-map-zoom="in" aria-label="확대" title="확대" type="button">+</button>
+                    <button class="map-tool-button" data-map-zoom="out" aria-label="축소" title="축소" type="button">-</button>
+                    <button class="map-tool-button map-tool-reset" data-map-zoom="reset" aria-label="확대 초기화" title="확대 초기화" type="button">1x</button>
+                </div>
+                <div class="map-zoom-indicator" id="mapZoomIndicator">100%</div>
                 <div class="map-empty-state" id="mapEmptyState">지도에 표시할 노선 또는 차량 위치 데이터가 없습니다.</div>
             </div>
         </div>
@@ -134,12 +170,14 @@
             <div class="map-sidebar-section">
                 <div class="map-stat-grid">
                     <div class="map-stat">
-                        <span>표시 노선</span>
+                        <span>지도 노선</span>
                         <strong id="mapRouteCount">0</strong>
+                        <small id="mapRouteScope">전체 노선 중 우선 표시</small>
                     </div>
                     <div class="map-stat">
                         <span>운행 차량</span>
                         <strong id="mapVehicleCount">0</strong>
+                        <small id="mapVehicleScope">화면 표시 차량</small>
                     </div>
                     <div class="map-stat">
                         <span>갱신 지연</span>
@@ -158,86 +196,6 @@
         </aside>
     </section>
 
-    <div class="row g-4">
-        <section class="col-12 col-xl-8">
-            <div class="panel mb-4">
-                <div class="panel-header">
-                    <div>
-                        <h2 class="h5 mb-1">이상징후</h2>
-                        <p class="text-secondary small mb-0">차량 간격, 위치 갱신 지연 등 운행 관점의 확인 대상</p>
-                    </div>
-                    <span class="badge text-bg-light" id="anomalyCount">0건</span>
-                </div>
-                <div class="table-responsive">
-                    <table class="table align-middle mb-0">
-                        <thead>
-                        <tr>
-                            <th>심각도</th>
-                            <th>노선</th>
-                            <th>유형</th>
-                            <th>기준 배차</th>
-                            <th>관측값</th>
-                            <th>판정 근거</th>
-                            <th>갱신</th>
-                            <th></th>
-                        </tr>
-                        </thead>
-                        <tbody id="anomalyBody"></tbody>
-                    </table>
-                </div>
-            </div>
-
-            <div class="panel">
-                <div class="panel-header">
-                    <div>
-                        <h2 class="h5 mb-1">최근 수집 실행</h2>
-                        <p class="text-secondary small mb-0">최신 실행 20건</p>
-                    </div>
-                    <span class="badge text-bg-light" id="runCount">0건</span>
-                </div>
-                <div class="table-responsive">
-                    <table class="table align-middle mb-0">
-                        <thead>
-                        <tr>
-                            <th>상태</th>
-                            <th>API</th>
-                            <th>요청키</th>
-                            <th class="text-end">행 수</th>
-                            <th>시작</th>
-                            <th>종료</th>
-                        </tr>
-                        </thead>
-                        <tbody id="runsBody"></tbody>
-                    </table>
-                </div>
-            </div>
-        </section>
-
-        <aside class="col-12 col-xl-4">
-            <div class="panel mb-4">
-                <div class="panel-header">
-                    <div>
-                        <h2 class="h5 mb-1">수집 이슈</h2>
-                        <p class="text-secondary small mb-0">실패 또는 부분 성공한 데이터 수집 실행</p>
-                    </div>
-                </div>
-                <div id="collectionIssueList" class="incident-list"></div>
-            </div>
-
-            <div class="panel briefing-panel">
-                <div class="panel-header">
-                    <div>
-                        <h2 class="h5 mb-1">AI 브리핑</h2>
-                        <p class="text-secondary small mb-0">운영자 요약 초안</p>
-                    </div>
-                    <button class="btn btn-dark btn-sm" id="briefingButton" type="button">생성</button>
-                </div>
-                <div id="briefingText" class="briefing-text">
-                    현재 수집 상태를 기준으로 주요 확인 대상을 정리합니다.
-                </div>
-            </div>
-        </aside>
-    </div>
 </main>
 
 <div class="modal fade" id="detailModal" tabindex="-1" aria-labelledby="detailModalTitle" aria-hidden="true">
