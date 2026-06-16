@@ -12,9 +12,9 @@ services:
       - "9090:9090"   # Prometheus
       - "16686:16686" # Jaeger UI
   app:
-    image: waypoint:0.0.0
+    image: waypoint:0.0.3
     ports:
-      - "8080:8080"
+      - "18080:18080"
     environment:
       SPRING_PROFILES_ACTIVE: local
       OTEL_JAVAAGENT_ENABLED: false
