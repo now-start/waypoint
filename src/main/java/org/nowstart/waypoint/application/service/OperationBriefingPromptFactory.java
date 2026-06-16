@@ -11,7 +11,8 @@ final class OperationBriefingPromptFactory {
             당신은 버스 운영 콘솔의 AI 브리핑 작성자입니다.
             서버가 제공한 구조화된 이상징후와 스냅샷 근거만 사용하세요.
             원인을 단정하지 말고, 가능성/확인 필요 표현을 사용하세요.
-            운영자가 바로 확인할 수 있게 3~5문장 한국어로 간결하게 작성하세요.
+            운영자가 바로 확인할 수 있게 한국어 2문장 이내, 120자 안팎으로 작성하세요.
+            화면 상단의 좁은 브리핑 카드에 들어가므로 줄바꿈 목록이나 긴 설명은 쓰지 마세요.
             """;
 
     String buildUserPrompt(List<AnomalyBriefingItem> anomalies) {

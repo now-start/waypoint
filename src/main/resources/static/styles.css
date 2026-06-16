@@ -45,7 +45,7 @@ body {
     align-items: stretch;
     display: grid;
     gap: var(--dashboard-gap);
-    grid-template-columns: minmax(250px, 0.9fr) minmax(360px, 1.05fr) minmax(300px, 0.82fr);
+    grid-template-columns: minmax(250px, 0.8fr) minmax(460px, 1.35fr) minmax(270px, 0.8fr);
 }
 
 .dashboard-header h1 {
@@ -77,28 +77,34 @@ body {
 }
 
 .top-briefing-panel {
-    align-items: flex-start;
+    align-items: center;
     background: #fff;
     border: 1px solid var(--panel-border);
     border-radius: 8px;
     box-shadow: 0 12px 28px rgba(29, 36, 51, 0.045);
     display: flex;
-    gap: 14px;
+    gap: 12px;
     justify-content: space-between;
     min-width: 0;
-    padding: 11px 13px;
+    padding: 10px 12px;
 }
 
 .top-briefing-copy {
+    flex: 1 1 auto;
     min-width: 0;
 }
 
 .top-briefing-text {
     color: #344054;
-    font-size: 0.9rem;
-    line-height: 1.45;
-    max-height: 5.9rem;
-    overflow: auto;
+    display: -webkit-box;
+    font-size: 0.86rem;
+    line-height: 1.32;
+    max-height: 2.65em;
+    min-height: 2.65em;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    word-break: keep-all;
 }
 
 .top-briefing-panel .btn {
@@ -297,6 +303,7 @@ body {
     stroke-linejoin: round;
     stroke-width: 5.5;
     transition: opacity 0.15s ease, stroke-width 0.15s ease;
+    vector-effect: non-scaling-stroke;
 }
 
 .route-path.is-muted {
@@ -320,7 +327,21 @@ body {
 }
 
 .route-label rect {
-    filter: drop-shadow(0 4px 8px rgba(16, 24, 40, 0.16));
+    stroke: rgba(255, 255, 255, 0.72);
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
+}
+
+.map-scaled-marker {
+    transform: scale(var(--map-marker-scale, 1));
+    transform-box: fill-box;
+    transform-origin: center;
+}
+
+.map-scaled-label {
+    transform: scale(var(--map-marker-scale, 1));
+    transform-box: fill-box;
+    transform-origin: center;
 }
 
 .stop-dot {
@@ -328,6 +349,7 @@ body {
     opacity: 0.9;
     stroke: #344054;
     stroke-width: 1.5;
+    vector-effect: non-scaling-stroke;
 }
 
 .stop-dot.is-muted {
@@ -338,6 +360,7 @@ body {
     fill: #101828;
     stroke: #fff;
     stroke-width: 2.4;
+    vector-effect: non-scaling-stroke;
 }
 
 .stop-label {
@@ -347,6 +370,7 @@ body {
     paint-order: stroke;
     stroke: #fff;
     stroke-width: 4;
+    vector-effect: non-scaling-stroke;
 }
 
 .vehicle-marker {
@@ -360,12 +384,14 @@ body {
 .vehicle-halo {
     fill: #fff;
     stroke-width: 3;
+    vector-effect: non-scaling-stroke;
 }
 
 .vehicle-arrow {
     stroke: #fff;
     stroke-linejoin: round;
     stroke-width: 2;
+    vector-effect: non-scaling-stroke;
 }
 
 .vehicle-marker.normal .vehicle-halo {
@@ -399,6 +425,7 @@ body {
     paint-order: stroke;
     stroke: #fff;
     stroke-width: 4;
+    vector-effect: non-scaling-stroke;
 }
 
 .map-empty-state {

@@ -19,6 +19,7 @@ class OperationBriefingPromptFactoryTest {
         String prompt = promptFactory.buildUserPrompt(List.of());
 
         then(prompt).contains("현재 이상징후가 없습니다.");
+        then(OperationBriefingPromptFactory.SYSTEM_PROMPT).contains("2문장 이내");
     }
 
     @Test

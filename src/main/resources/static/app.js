@@ -11,6 +11,7 @@ const detailScrollThresholdPx = 80;
 const mapWidth = 1200;
 const mapHeight = 490;
 const routePalette = ["#008c72", "#276ef1", "#e34f26", "#c51b7d", "#7b61ff", "#0097a7", "#d62828", "#2f855a"];
+const routeOrderCollator = new Intl.Collator("ko-KR", {numeric: true, sensitivity: "base"});
 const graphPadding = {top: 44, right: 56, bottom: 52, left: 56};
 const maxOverviewRoutePathPoints = 34;
 const maxSelectedRoutePathPoints = 78;
@@ -20,6 +21,8 @@ const minMapLatitudeSpan = 0.05;
 const minMapLongitudeSpan = 0.06;
 const maxMapZoom = 5;
 const mapZoomStep = 1.35;
+const minMapMarkerScale = 0.26;
+const mapMarkerScalePower = 1.1;
 const unmatchedVehicleLaneY = 452;
 
 const elements = {
@@ -70,7 +73,7 @@ let cachedStatus = null;
 let refreshTimerId;
 let secondsUntilRefresh = refreshIntervalSeconds;
 let detailState = null;
-let selectedRouteId = "all";
+let selectedRouteIds = new Set();
 let mapViewBox = {x: 0, y: 0, width: mapWidth, height: mapHeight};
 let mapPanState = null;
 let suppressMapClick = false;
@@ -220,6 +223,31 @@ function numericOrder(value) {
 
     const number = Number(value);
     return Number.isFinite(number) ? number : Number.MAX_SAFE_INTEGER;
+}
+
+function routeFilterLabel(route) {
+    return String(route?.routeNo || route?.sourceRouteId || "");
+}
+
+function compareRoutes(left, right) {
+    const labelDiff = routeOrderCollator.compare(routeFilterLabel(left), routeFilterLabel(right));
+    if (labelDiff !== 0) {
+        return labelDiff;
+    }
+
+    return String(left?.sourceRouteId || "").localeCompare(String(right?.sourceRouteId || ""));
+}
+
+function allRoutesSelected() {
+    return selectedRouteIds.size === 0;
+}
+
+function routeSelected(routeId) {
+    return allRoutesSelected() || selectedRouteIds.has(routeId);
+}
+
+function selectedRouteLabel() {
+    return allRoutesSelected() ? "전체" : `${formatNumber(selectedRouteIds.size)}개 선택`;
 }
 
 function normalizedRouteStops(route) {
@@ -386,7 +414,7 @@ function projectCoordinate(latitude, longitude, bounds, offset = {x: 0, y: 0}) {
 }
 
 function buildRouteGraphLayouts(routes, bounds, fallbackBounds) {
-    return routes.map((route, routeIndex) => {
+    return [...routes].sort(compareRoutes).map((route, routeIndex) => {
         const offset = routeOffset(routeIndex);
         const stopPoints = normalizedRouteStops(route)
             .filter((stop) => validCoordinate(stop.latitude, stop.longitude))
@@ -430,8 +458,10 @@ function routeBadge(point, route, color, side = "start") {
 
     return `
         <g class="route-label" transform="translate(${point.x.toFixed(1)} ${point.y.toFixed(1)})">
-            <rect x="${x}" y="-11" width="${width}" height="22" rx="11" fill="${color}"></rect>
-            <text x="${x + (width / 2)}" y="4" text-anchor="middle">${escapeHtml(label)}</text>
+            <g class="map-scaled-label">
+                <rect x="${x}" y="-11" width="${width}" height="22" rx="11" fill="${color}"></rect>
+                <text x="${x + (width / 2)}" y="4" text-anchor="middle">${escapeHtml(label)}</text>
+            </g>
         </g>
     `;
 }
@@ -558,7 +588,7 @@ function vehicleGraphPoint(vehicle, routeLayouts, bounds, fallbackBounds, vehicl
 
     const fallback = layout.stopPoints[Math.floor(layout.stopPoints.length / 2)];
     const stackOffset = ((Math.abs(hashValue(vehicle.vehicleNo || vehicleIndex)) % 5) - 2) * 5;
-    const yOffset = selectedRouteId === "all" ? -11 : -18;
+    const yOffset = allRoutesSelected() ? -11 : -18;
     const point = anchor || fallback;
     return {
         x: point.x,
@@ -567,7 +597,7 @@ function vehicleGraphPoint(vehicle, routeLayouts, bounds, fallbackBounds, vehicl
 }
 
 function routeFilteredVehicles(vehicles) {
-    return vehicles.filter((vehicle) => selectedRouteId === "all" || vehicle.sourceRouteId === selectedRouteId);
+    return vehicles.filter((vehicle) => routeSelected(vehicle.sourceRouteId));
 }
 
 function visibleMapVehicles(vehicles) {
@@ -580,6 +610,10 @@ function clampValue(value, min, max) {
 
 function currentMapZoom() {
     return mapWidth / mapViewBox.width;
+}
+
+function currentMapMarkerScale() {
+    return clampValue(1 / Math.pow(currentMapZoom(), mapMarkerScalePower), minMapMarkerScale, 1);
 }
 
 function clampMapViewBox(viewBox) {
@@ -599,6 +633,7 @@ function setMapViewBox(viewBox) {
         "viewBox",
         `${mapViewBox.x.toFixed(1)} ${mapViewBox.y.toFixed(1)} ${mapViewBox.width.toFixed(1)} ${mapViewBox.height.toFixed(1)}`
     );
+    elements.operationMap.style.setProperty("--map-marker-scale", currentMapMarkerScale().toFixed(3));
     elements.mapZoomIndicator.textContent = `${Math.round(currentMapZoom() * 100)}%`;
 }
 
@@ -702,37 +737,35 @@ function renderTransitMap(payload) {
     cachedMap = payload;
     const routes = Array.isArray(payload.routes) ? payload.routes : [];
     const vehicles = Array.isArray(payload.vehicles) ? payload.vehicles : [];
-    const selectedRoute = selectedRouteId === "all"
-        ? null
-        : routes.find((route) => route.sourceRouteId === selectedRouteId);
-
-    if (selectedRouteId !== "all" && !selectedRoute) {
-        selectedRouteId = "all";
-    }
 
     elements.mapUpdatedAt.textContent = `지도 기준 ${formatDateTime(payload.generatedAt)}`;
     const fallbackBounds = normalizedMapBounds(payload.bounds);
     const bounds = dataBounds(routes, vehicles, fallbackBounds);
     const routeLayouts = buildRouteGraphLayouts(routes, bounds, fallbackBounds);
     const drawableRouteLayouts = routeLayouts.filter((layout) => layout.stopPoints.length >= 2);
-    if (selectedRouteId !== "all" && !drawableRouteLayouts.some((layout) => layout.route.sourceRouteId === selectedRouteId)) {
-        selectedRouteId = "all";
-    }
+    const drawableRouteIds = new Set(drawableRouteLayouts.map((layout) => layout.route.sourceRouteId));
+    selectedRouteIds = new Set([...selectedRouteIds].filter((routeId) => drawableRouteIds.has(routeId)));
     const drawableRouteCount = drawableRouteLayouts.length;
+    const visibleRouteCount = allRoutesSelected()
+        ? drawableRouteCount
+        : drawableRouteLayouts.filter((layout) => selectedRouteIds.has(layout.route.sourceRouteId)).length;
     const totalRouteCount = Number(cachedStatus?.routeCount);
-    elements.mapRouteCount.textContent = formatNumber(drawableRouteCount);
+    elements.mapRouteCount.textContent = formatNumber(visibleRouteCount);
     elements.mapRouteScope.textContent = Number.isFinite(totalRouteCount) && totalRouteCount > 0
-        ? totalRouteCount === drawableRouteCount
-            ? `전체 ${formatNumber(totalRouteCount)}개 표시`
-            : `전체 ${formatNumber(totalRouteCount)}개 중 화면 ${formatNumber(drawableRouteCount)}개`
+        ? allRoutesSelected()
+            ? totalRouteCount === drawableRouteCount
+                ? `전체 ${formatNumber(totalRouteCount)}개 표시`
+                : `전체 ${formatNumber(totalRouteCount)}개 중 화면 ${formatNumber(drawableRouteCount)}개`
+            : `전체 ${formatNumber(totalRouteCount)}개 중 ${selectedRouteLabel()}`
         : "실제 그려진 노선";
     const visibleVehicles = visibleMapVehicles(vehicles);
     const routeVehicleTotal = routeFilteredVehicles(vehicles).length;
+    const visibleDelayedVehicleCount = visibleVehicles.filter((vehicle) => vehicle.freshness !== "normal").length;
     elements.mapVehicleCount.textContent = formatNumber(visibleVehicles.length);
     elements.mapVehicleScope.textContent = routeVehicleTotal > visibleVehicles.length
         ? `전체 ${formatNumber(routeVehicleTotal)}대 중 화면 ${formatNumber(visibleVehicles.length)}대`
         : routeVehicleTotal > 0 ? `전체 ${formatNumber(routeVehicleTotal)}대 표시` : "화면 표시 차량";
-    elements.mapDelayedVehicleCount.textContent = formatNumber(payload.summary?.delayedVehicleCount ?? 0);
+    elements.mapDelayedVehicleCount.textContent = formatNumber(visibleDelayedVehicleCount);
     elements.mapEmptyState.textContent = "지도에 표시할 노선 또는 차량 위치 데이터가 없습니다.";
     elements.mapEmptyState.classList.toggle("show", drawableRouteCount === 0 && vehicles.length === 0);
 
@@ -751,9 +784,11 @@ function renderRouteFilters(routeLayouts, vehicles) {
     const routeButtons = routeLayouts.map((layout) => {
         const {route, color} = layout;
         const vehicleCount = routeVehicleCounts.get(route.sourceRouteId) || 0;
-        const activeClass = selectedRouteId === route.sourceRouteId ? " active" : "";
+        const active = selectedRouteIds.has(route.sourceRouteId);
+        const activeClass = active ? " active" : "";
         return `
             <button class="route-filter${activeClass}" data-route-id="${escapeHtml(route.sourceRouteId)}"
+                    aria-pressed="${active}"
                     style="--route-color: ${color}" type="button">
                 ${escapeHtml(route.routeNo || route.sourceRouteId)}
                 <span class="text-secondary">${escapeHtml(vehicleCount)}대</span>
@@ -761,22 +796,31 @@ function renderRouteFilters(routeLayouts, vehicles) {
         `;
     }).join("");
 
-    const allActiveClass = selectedRouteId === "all" ? " active" : "";
+    const allActive = allRoutesSelected();
+    const allActiveClass = allActive ? " active" : "";
     elements.routeFilterList.innerHTML = `
-        <button class="route-filter${allActiveClass}" data-route-id="all" style="--route-color: #344054" type="button">지도 전체</button>
+        <button class="route-filter${allActiveClass}" data-route-id="all" aria-pressed="${allActive}" style="--route-color: #344054" type="button">지도 전체</button>
         ${routeButtons || `<span class="text-secondary small">표시할 노선이 없습니다.</span>`}
     `;
 }
 
 function renderRouteLayer(routeLayouts) {
-    elements.routeLayer.innerHTML = routeLayouts.map((layout) => {
+    const allSelected = allRoutesSelected();
+    const visibleLayouts = allSelected
+        ? routeLayouts
+        : routeLayouts.filter((layout) => selectedRouteIds.has(layout.route.sourceRouteId));
+    const overviewBadgeInterval = allSelected
+        ? Math.max(1, Math.ceil(visibleLayouts.length / 48))
+        : 1;
+
+    elements.routeLayer.innerHTML = visibleLayouts.map((layout, layoutIndex) => {
         const {route, color, stopPoints} = layout;
         if (stopPoints.length < 2) {
             return "";
         }
 
-        const selected = selectedRouteId === route.sourceRouteId;
-        const muted = selectedRouteId !== "all" && !selected;
+        const selected = !allSelected && selectedRouteIds.has(route.sourceRouteId);
+        const muted = false;
         const classes = [
             "route-path",
             selected ? "is-selected" : "",
@@ -787,12 +831,14 @@ function renderRouteLayer(routeLayouts) {
             .join(" ");
         const firstPoint = stopPoints[0];
         const lastPoint = stopPoints[stopPoints.length - 1];
+        const showOverviewBadge = allSelected && layoutIndex % overviewBadgeInterval === 0;
+        const showStartBadge = selected || showOverviewBadge;
         return `
             <g class="route-track${muted ? " is-muted" : ""}${selected ? " is-selected" : ""}">
                 <polyline class="${classes}" points="${pointText}" stroke="${color}">
                     <title>${escapeHtml(route.routeNo || route.sourceRouteId)} ${escapeHtml(route.startNodeName || "")} - ${escapeHtml(route.endNodeName || "")}</title>
                 </polyline>
-                ${routeBadge(firstPoint, route, color)}
+                ${showStartBadge ? routeBadge(firstPoint, route, color) : ""}
                 ${selected ? routeBadge(lastPoint, route, color, "end") : ""}
             </g>
         `;
@@ -801,16 +847,17 @@ function renderRouteLayer(routeLayouts) {
 
 function renderStopLayer(routeLayouts) {
     const stopUseCounts = buildStopUseCounts(routeLayouts);
-    const visibleLayouts = selectedRouteId === "all"
+    const allSelected = allRoutesSelected();
+    const visibleLayouts = allSelected
         ? routeLayouts
-        : routeLayouts.filter((layout) => layout.route.sourceRouteId === selectedRouteId);
+        : routeLayouts.filter((layout) => selectedRouteIds.has(layout.route.sourceRouteId));
 
     elements.stopLayer.innerHTML = visibleLayouts.flatMap((layout) => {
-        const selected = selectedRouteId === layout.route.sourceRouteId;
-        const muted = selectedRouteId !== "all" && !selected;
+        const selected = !allSelected && selectedRouteIds.has(layout.route.sourceRouteId);
+        const muted = false;
         const interval = selected
             ? Math.max(1, Math.ceil(layout.stopPoints.length / 72))
-            : Math.max(1, Math.ceil(layout.stopPoints.length / 26));
+            : Math.max(1, Math.ceil(layout.stopPoints.length / 12));
 
         return layout.stopPoints.map((point, index) => {
             const sourceNodeId = point.stop.sourceNodeId;
@@ -829,11 +876,13 @@ function renderStopLayer(routeLayouts) {
                 muted ? "is-muted" : ""
             ].filter(Boolean).join(" ");
             return `
-                <g class="stop-node">
-                    <circle class="${classes}" cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="${interchange ? "5.4" : "3.9"}">
-                        <title>${escapeHtml(point.stop.nodeName || sourceNodeId)} · 순번 ${escapeHtml(point.stop.nodeOrder ?? "-")}</title>
-                    </circle>
-                    ${showLabel ? `<text class="stop-label" x="${point.x.toFixed(1)}" y="${(point.y + 20).toFixed(1)}" text-anchor="middle">${escapeHtml(point.stop.nodeName || sourceNodeId || "-")}</text>` : ""}
+                <g class="stop-node" transform="translate(${point.x.toFixed(1)} ${point.y.toFixed(1)})">
+                    <g class="map-scaled-marker">
+                        <circle class="${classes}" r="${interchange ? "5.4" : "3.9"}">
+                            <title>${escapeHtml(point.stop.nodeName || sourceNodeId)} · 순번 ${escapeHtml(point.stop.nodeOrder ?? "-")}</title>
+                        </circle>
+                    </g>
+                    ${showLabel ? `<text class="stop-label map-scaled-label" x="0" y="20" text-anchor="middle">${escapeHtml(point.stop.nodeName || sourceNodeId || "-")}</text>` : ""}
                 </g>
             `;
         });
@@ -841,6 +890,7 @@ function renderStopLayer(routeLayouts) {
 }
 
 function renderVehicleLayer(visibleVehicles, routeLayouts, bounds, fallbackBounds) {
+    const allSelected = allRoutesSelected();
     elements.vehicleLayer.innerHTML = visibleVehicles.map((vehicle, vehicleIndex) => {
         const point = vehicleGraphPoint(vehicle, routeLayouts, bounds, fallbackBounds, vehicleIndex);
         if (!point) {
@@ -848,15 +898,17 @@ function renderVehicleLayer(visibleVehicles, routeLayouts, bounds, fallbackBound
         }
         const routeNo = vehicle.routeNo || "-";
         const freshness = ["normal", "delayed", "stale"].includes(vehicle.freshness) ? vehicle.freshness : "stale";
-        const compactClass = selectedRouteId === "all" ? " is-compact" : "";
-        const markerRadius = selectedRouteId === "all" ? 9 : 14;
-        const markerPath = selectedRouteId === "all" ? "M -5 -6 L 7 0 L -5 6 Z" : "M -7 -8 L 10 0 L -7 8 Z";
+        const compactClass = allSelected ? " is-compact" : "";
+        const markerRadius = allSelected ? 9 : 14;
+        const markerPath = allSelected ? "M -5 -6 L 7 0 L -5 6 Z" : "M -7 -8 L 10 0 L -7 8 Z";
         return `
             <g class="vehicle-marker ${escapeHtml(freshness)}${compactClass}" data-route-id="${escapeHtml(vehicle.sourceRouteId)}"
                transform="translate(${point.x.toFixed(1)} ${point.y.toFixed(1)})">
-                <circle class="vehicle-halo" r="${markerRadius}"></circle>
-                <path class="vehicle-arrow" d="${markerPath}"></path>
-                ${selectedRouteId === "all" ? "" : `<text x="17" y="5">${escapeHtml(routeNo)}</text>`}
+                <g class="map-scaled-marker">
+                    <circle class="vehicle-halo" r="${markerRadius}"></circle>
+                    <path class="vehicle-arrow" d="${markerPath}"></path>
+                </g>
+                ${allSelected ? "" : `<text class="map-scaled-label" x="17" y="5">${escapeHtml(routeNo)}</text>`}
                 <title>${escapeHtml(routeNo)}번 ${escapeHtml(vehicle.vehicleNo || "-")} · ${point.unmatched ? "표시 노선 밖 · " : ""}${escapeHtml(freshnessLabel(vehicle.freshness))} · ${escapeHtml(formatAge(vehicle.collectedAt))}</title>
             </g>
         `;
@@ -865,7 +917,7 @@ function renderVehicleLayer(visibleVehicles, routeLayouts, bounds, fallbackBound
 
 function renderVehicleFeed(vehicles) {
     const visibleVehicles = vehicles
-        .filter((vehicle) => selectedRouteId === "all" || vehicle.sourceRouteId === selectedRouteId)
+        .filter((vehicle) => routeSelected(vehicle.sourceRouteId))
         .slice(0, 8);
 
     if (visibleVehicles.length === 0) {
@@ -1029,7 +1081,7 @@ function setBriefingText(message) {
 function renderFallbackBriefing() {
     if (cachedAnomalies.length > 0) {
         const top = cachedAnomalies[0];
-        setBriefingText(`${top.routeNo}번 ${top.area} 구간에서 ${top.type} 징후가 우선 확인 대상입니다. 원래 배차는 ${top.baseline}이고, 최근 스냅샷에서는 ${top.observed}으로 관측되어 ${top.metric} 차이가 있습니다. 실제 원인은 현장 상황과 추가 수집 데이터를 함께 확인해야 합니다.`);
+        setBriefingText(`${top.routeNo}번 ${top.type}이 우선 확인 대상입니다. ${top.observed}, ${top.metric} 차이로 현장 확인이 필요합니다.`);
         return;
     }
 
@@ -1039,13 +1091,13 @@ function renderFallbackBriefing() {
 
     if (failed.length === 0 && partial.length === 0) {
         setBriefingText(latestSuccess
-            ? `최근 ${latestSuccess.apiType} 수집은 정상 완료되었습니다. 현재 우선 확인 대상은 없으며, 최신 위치와 도착정보 갱신 시각을 계속 확인하면 됩니다.`
+            ? `최근 ${latestSuccess.apiType} 수집은 정상 완료되었습니다. 우선 확인 대상은 없고 최신 갱신 시각만 계속 확인하면 됩니다.`
             : "아직 수집 실행 데이터가 없습니다. 기준 데이터와 위치, 도착정보 수집 후 브리핑을 생성할 수 있습니다.");
         return;
     }
 
-    const items = [...failed, ...partial].slice(0, 3).map((run) => `${run.apiType} ${run.status}`).join(", ");
-    setBriefingText(`${items} 실행을 먼저 확인해야 합니다. 오류 메시지와 수집 행 수를 기준으로 API 응답 누락, 부분 저장, 외부 호출 실패 여부를 점검하는 것이 좋습니다.`);
+    const items = [...failed, ...partial].slice(0, 2).map((run) => `${run.apiType} ${run.status}`).join(", ");
+    setBriefingText(`${items} 실행을 먼저 확인해야 합니다. 오류 메시지와 수집 행 수 기준으로 응답 누락 여부를 점검하세요.`);
 }
 
 async function renderBriefing() {
@@ -1365,7 +1417,14 @@ elements.routeFilterList.addEventListener("click", (event) => {
         return;
     }
 
-    selectedRouteId = button.dataset.routeId;
+    const routeId = button.dataset.routeId;
+    if (routeId === "all") {
+        selectedRouteIds.clear();
+    } else if (selectedRouteIds.has(routeId)) {
+        selectedRouteIds.delete(routeId);
+    } else {
+        selectedRouteIds.add(routeId);
+    }
     renderTransitMap(cachedMap);
 });
 
@@ -1380,7 +1439,7 @@ elements.vehicleLayer.addEventListener("click", (event) => {
         return;
     }
 
-    selectedRouteId = marker.dataset.routeId;
+    selectedRouteIds = new Set([marker.dataset.routeId]);
     renderTransitMap(cachedMap);
 });
 
