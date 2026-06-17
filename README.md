@@ -9,7 +9,7 @@ Waypoint는 창원시 버스 TAGO 데이터를 수집해 노선, 정류장, 차�
 - 노선 필터 다중 선택, 지도 확대/축소, 차량 진행 목록
 - 위치 갱신 지연과 차량 간격 기반 이상징후 표시
 - 최근 수집 실행 이력과 실패/부분 성공 메시지 확인
-- Ollama 기반 운영 브리핑 초안 생성
+- Ollama 또는 OpenAI 기반 운영 브리핑 초안 생성
 - 상세 모달을 통한 노선, 정류소, 노선-정류소, 위치/도착 스냅샷 조회
 
 ## 기술 스택
@@ -41,6 +41,23 @@ SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
 - OpenTelemetry SDK 비활성화
 
 TAGO 인증키가 비어 있으면 외부 API 호출은 실패하지만, 애플리케이션과 화면 자체는 기동됩니다.
+
+## AI 브리핑 모델
+
+기본값은 로컬 Ollama입니다.
+
+```bash
+WAYPOINT_AI_CHAT_PROVIDER=ollama SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
+```
+
+OpenAI 크레딧을 사용하려면 OpenAI API 키를 런타임 환경에 주입하고 chat provider를 `openai`로 바꿉니다.
+
+```bash
+WAYPOINT_AI_CHAT_PROVIDER=openai OPENAI_API_KEY="<project-api-key>" SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
+```
+
+OpenAI 모델 기본값은 `gpt-4o-mini`입니다. 필요하면 `OPENAI_CHAT_MODEL`로 변경합니다.
+`docker compose up app`도 같은 환경변수를 읽습니다.
 
 ## 주요 API
 
