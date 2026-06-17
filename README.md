@@ -44,20 +44,21 @@ TAGO 인증키가 비어 있으면 외부 API 호출은 실패하지만, 애플�
 
 ## AI 브리핑 모델
 
-기본값은 로컬 Ollama입니다.
+기본값은 로컬 Ollama이며, 화면 상단 AI 브리핑 패널에서 provider와 model을 선택합니다.
 
 ```bash
 WAYPOINT_AI_CHAT_PROVIDER=ollama SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
 ```
 
-OpenAI 크레딧을 사용하려면 OpenAI API 키를 런타임 환경에 주입하고 chat provider를 `openai`로 바꿉니다.
+OpenAI 크레딧을 사용하려면 OpenAI API 키를 런타임 환경에 주입합니다.
 
 ```bash
-WAYPOINT_AI_CHAT_PROVIDER=openai OPENAI_API_KEY="<project-api-key>" SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
+OPENAI_API_KEY="<project-api-key>" SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
 ```
 
-OpenAI 모델 기본값은 `gpt-4o-mini`입니다. 필요하면 `OPENAI_CHAT_MODEL`로 변경합니다.
+기본 provider와 모델은 `application-local.yaml`의 `waypoint.briefing.ai`에서 관리합니다. 공통 옵션은 `model`, `temperature`, `top-p`, `num-predict`를 사용하고, Ollama 전용 옵션은 `top-k`, `repeat-penalty`, `num-ctx`, `keep-alive`를 추가로 사용합니다.
 `docker compose up app`도 같은 환경변수를 읽습니다.
+운영 프로필은 공통 `application.yaml`이 아니라 Config Server 또는 배포 환경변수에서 provider 기본값과 키를 명시합니다.
 
 ## 주요 API
 
@@ -70,6 +71,7 @@ OpenAI 모델 기본값은 `gpt-4o-mini`입니다. 필요하면 `OPENAI_CHAT_MOD
 | `POST` | `/api/collections/arrivals` | 도착정보 수집 |
 | `GET` | `/api/operations/map` | 노선 그래프와 차량 위치 |
 | `GET` | `/api/anomalies` | 운영 이상징후 |
+| `GET` | `/api/briefings/options` | AI 브리핑 provider와 기본 모델 |
 | `POST` | `/api/briefings/operations` | AI 운영 브리핑 생성 |
 | `GET` | `/api/details/{type}` | 상세 데이터 페이지 조회 |
 

@@ -83,6 +83,7 @@ body {
     border-radius: 8px;
     box-shadow: 0 12px 28px rgba(29, 36, 51, 0.045);
     display: flex;
+    flex-wrap: wrap;
     gap: 12px;
     justify-content: space-between;
     min-width: 0;
@@ -105,6 +106,23 @@ body {
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
     word-break: keep-all;
+}
+
+.briefing-controls {
+    align-items: center;
+    display: flex;
+    flex: 0 1 240px;
+    gap: 6px;
+    min-width: 220px;
+}
+
+.briefing-controls .form-select {
+    flex: 0 0 92px;
+}
+
+.briefing-controls .form-control {
+    flex: 1 1 128px;
+    min-width: 0;
 }
 
 .top-briefing-panel .btn {

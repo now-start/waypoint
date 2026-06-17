@@ -5,6 +5,7 @@ const statusEndpoint = "api/collections/status";
 const runsEndpoint = "api/collections/runs?limit=20";
 const anomaliesEndpoint = "api/anomalies";
 const mapEndpoint = "api/operations/map";
+const briefingOptionsEndpoint = "api/briefings/options";
 const refreshIntervalSeconds = 30;
 const detailSliceSize = 50;
 const detailScrollThresholdPx = 80;
@@ -56,6 +57,8 @@ const elements = {
     runList: document.querySelector("#runList"),
     runCount: document.querySelector("#runCount"),
     briefingText: document.querySelector("#briefingText"),
+    briefingProvider: document.querySelector("#briefingProvider"),
+    briefingModel: document.querySelector("#briefingModel"),
     detailModal: document.querySelector("#detailModal"),
     detailModalBody: document.querySelector("#detailModal .modal-body"),
     detailModalTitle: document.querySelector("#detailModalTitle"),
@@ -77,6 +80,13 @@ let selectedRouteIds = new Set();
 let mapViewBox = {x: 0, y: 0, width: mapWidth, height: mapHeight};
 let mapPanState = null;
 let suppressMapClick = false;
+let briefingOptions = {
+    defaultProvider: "",
+    providers: [
+        {provider: "ollama", label: "Ollama", defaultModel: ""},
+        {provider: "openai", label: "OpenAI", defaultModel: ""}
+    ]
+};
 
 function normalizeBaseUrl(value) {
     if (!value) {
@@ -1078,6 +1088,51 @@ function setBriefingText(message) {
     elements.briefingText.title = message;
 }
 
+function selectedBriefingProviderOption() {
+    return briefingOptions.providers.find((provider) => provider.provider === elements.briefingProvider.value)
+        || briefingOptions.providers[0];
+}
+
+function syncBriefingModelToProvider(force = false) {
+    const provider = selectedBriefingProviderOption();
+    if (!provider) {
+        return;
+    }
+
+    if (force || !elements.briefingModel.value.trim()) {
+        elements.briefingModel.value = provider.defaultModel || "";
+    }
+}
+
+function renderBriefingOptions() {
+    const providers = Array.isArray(briefingOptions.providers) && briefingOptions.providers.length > 0
+        ? briefingOptions.providers
+        : [{provider: "ollama", label: "Ollama", defaultModel: ""}];
+    const selectedProvider = providers.some((provider) => provider.provider === briefingOptions.defaultProvider)
+        ? briefingOptions.defaultProvider
+        : providers[0].provider;
+
+    elements.briefingProvider.replaceChildren(...providers.map((provider) => {
+        const option = new Option(provider.label || provider.provider, provider.provider);
+        option.selected = provider.provider === selectedProvider;
+        return option;
+    }));
+    syncBriefingModelToProvider(true);
+}
+
+async function loadBriefingOptions() {
+    try {
+        const options = await fetchJson(briefingOptionsEndpoint);
+        if (options && Array.isArray(options.providers) && options.providers.length > 0) {
+            briefingOptions = options;
+        }
+    } catch (error) {
+        showToast(`AI 설정 조회 실패, 기본값 사용: ${error.message}`);
+    } finally {
+        renderBriefingOptions();
+    }
+}
+
 function renderFallbackBriefing() {
     if (cachedAnomalies.length > 0) {
         const top = cachedAnomalies[0];
@@ -1111,7 +1166,11 @@ async function renderBriefing() {
         const response = await fetchJson("api/briefings/operations", {
             method: "POST",
             headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({anomalies: cachedAnomalies.map(toBriefingAnomaly)})
+            body: JSON.stringify({
+                provider: elements.briefingProvider.value,
+                model: elements.briefingModel.value.trim(),
+                anomalies: cachedAnomalies.map(toBriefingAnomaly)
+            })
         });
         setBriefingText(response.content || "AI 브리핑 결과가 비어 있습니다.");
     } catch (error) {
@@ -1384,6 +1443,7 @@ document.querySelectorAll("[data-collect-url]").forEach((button) => {
 });
 
 document.querySelector("#briefingButton").addEventListener("click", renderBriefing);
+elements.briefingProvider.addEventListener("change", () => syncBriefingModelToProvider(true));
 
 elements.mapZoomControls.addEventListener("click", (event) => {
     const button = event.target.closest("[data-map-zoom]");
@@ -1452,10 +1512,13 @@ elements.detailModalBody.addEventListener("scroll", handleDetailScroll);
 
 setMapViewBox(mapViewBox);
 startAutoRefresh();
+renderBriefingOptions();
 
-loadDashboard().catch((error) => {
-    elements.mapEmptyState.classList.add("show");
-    renderAnomalies(cachedAnomalies);
-    elements.runList.innerHTML = `<div class="empty-state compact">대시보드 데이터를 불러오지 못했습니다.</div>`;
-    showToast(`로딩 실패: ${error.message}`);
-});
+loadBriefingOptions()
+    .finally(() => loadDashboard())
+    .catch((error) => {
+        elements.mapEmptyState.classList.add("show");
+        renderAnomalies(cachedAnomalies);
+        elements.runList.innerHTML = `<div class="empty-state compact">대시보드 데이터를 불러오지 못했습니다.</div>`;
+        showToast(`로딩 실패: ${error.message}`);
+    });

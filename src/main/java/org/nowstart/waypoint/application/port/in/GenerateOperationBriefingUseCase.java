@@ -6,7 +6,15 @@ public interface GenerateOperationBriefingUseCase {
 
     OperationBriefing generate(OperationBriefingCommand command);
 
-    record OperationBriefingCommand(List<AnomalyBriefingItem> anomalies) {
+    OperationBriefingOptions options();
+
+    record OperationBriefingCommand(String provider, String model, List<AnomalyBriefingItem> anomalies) {
+    }
+
+    record OperationBriefingOptions(String defaultProvider, List<ProviderOption> providers) {
+    }
+
+    record ProviderOption(String provider, String label, String defaultModel) {
     }
 
     record AnomalyBriefingItem(

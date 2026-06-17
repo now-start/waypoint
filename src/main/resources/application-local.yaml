@@ -2,18 +2,6 @@ server:
   port: 18080
 
 spring:
-  ai:
-    ollama:
-      base-url: http://localhost:11434
-      chat:
-        model: gemma4:e4b
-        temperature: 0.2
-        top-p: 0.9
-        top-k: 40
-        repeat-penalty: 1.1
-        num-ctx: 8192
-        num-predict: 512
-        keep-alive: 10m
   datasource:
     url: jdbc:h2:mem:localdb;MODE=MariaDB;DB_CLOSE_DELAY=-1
     username: sa
@@ -49,6 +37,26 @@ otel:
     disabled: true
 
 waypoint:
+  briefing:
+    ai:
+      default-provider: ${WAYPOINT_AI_CHAT_PROVIDER:ollama}
+      ollama:
+        base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+        model: ${OLLAMA_CHAT_MODEL:gemma4:e4b}
+        temperature: 0.2
+        top-p: 0.9
+        top-k: 40
+        repeat-penalty: 1.1
+        num-ctx: 8192
+        num-predict: 512
+        keep-alive: 10m
+      openai:
+        api-key: ${OPENAI_API_KEY:}
+        base-url: ${OPENAI_BASE_URL:https://api.openai.com}
+        model: ${OPENAI_CHAT_MODEL:gpt-4o-mini}
+        temperature: 0.2
+        top-p: 0.9
+        num-predict: 512
   tago:
     base-url: http://apis.data.go.kr/1613000
     service-key: ${TAGO_SERVICE_KEY:}

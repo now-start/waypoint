@@ -8,7 +8,10 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 
 @EnableScheduling
 @EnableJpaAuditing
-@SpringBootApplication
+@SpringBootApplication(excludeName = {
+        "org.springframework.ai.model.ollama.autoconfigure.OllamaChatAutoConfiguration",
+        "org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration"
+})
 @ConfigurationPropertiesScan
 public class Application {
 
