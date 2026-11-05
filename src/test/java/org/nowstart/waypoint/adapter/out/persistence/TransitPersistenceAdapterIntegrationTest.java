@@ -28,6 +28,7 @@ import static org.assertj.core.api.Assertions.assertThat;
                 "spring.datasource.username=sa",
                 "spring.datasource.password=",
                 "spring.jpa.hibernate.ddl-auto=create-drop",
+                "spring.profiles.active=local",
                 "spring.cloud.config.enabled=false",
                 "spring.cloud.discovery.enabled=false",
                 "eureka.client.enabled=false"
