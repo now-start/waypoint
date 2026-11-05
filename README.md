@@ -86,7 +86,7 @@ OPENAI_API_KEY="<project-api-key>" SPRING_PROFILES_ACTIVE=local ./gradlew bootRu
 - 도착정보: 10분 주기
 - 위치 갱신 이상징후 기준: 5분
 
-운영 프로필은 `spring.config.import=optional:configserver:https://spring.nowstart.org/config`를 통해 Config Server 값을 우선 사용합니다.
+운영 프로필은 `spring.config.import=configserver:https://spring.nowstart.org/config`를 통해 Config Server 값을 우선 사용합니다.
 
 ## 검증
 
@@ -101,7 +101,7 @@ git diff --check
 ## 이미지 빌드
 
 ```bash
-./gradlew bootBuildImage --imageName waypoint:0.0.6
+./gradlew bootBuildImage --imageName waypoint:0.0.7
 docker compose up app
 ```
 
